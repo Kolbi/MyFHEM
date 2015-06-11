@@ -7,8 +7,8 @@ use warnings;
 use POSIX;
 use Time::Local;
 
-#use myCtrlHAL;
-require "$attr{global}{modpath}/FHEM/myCtrlHAL.pm";
+use myCtrlHAL;
+#require "$attr{global}{modpath}/FHEM/myCtrlHAL.pm";
 require "$attr{global}{modpath}/FHEM/99_myCtrlBase.pm";
 #require "$attr{global}{modpath}/FHEM/99_myCtrlVoice.pm";
 
@@ -150,10 +150,10 @@ sub actFensterSabotageKontakt($$) {
 
 # Methode für den taster
 # Schatet globale Haus-Automatik ein 
-# (setzt DEVICE_NAME_CTRL_BESCHATTUNG aud AUTOMATIC)
+# (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf AUTOMATIC/NORMAL)
 sub actHomeAutomaticOn() {
 	# Derzeit keine globale Automatik, daher delegieren
-	setBeschattungAutomaticOn();
+	setBeschattungAutomatic();
 	# Tag/Nacht-Steuerung moechte ich hier nicht haben...
 	
 	# Hier (Sprach)Meldungen
@@ -163,7 +163,7 @@ sub actHomeAutomaticOn() {
 
 # Methode für den taster
 # Schatet globale Haus-Automatik aus 
-# (setzt DEVICE_NAME_CTRL_BESCHATTUNG aud DISABLED)
+# (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf DISABLED)
 sub actHomeAutomaticOff() {
 	# Derzeit keine globale Automatik, daher delegieren
 	setBeschattungAutomaticOff(); # ?
@@ -181,7 +181,7 @@ sub actHomeAutomaticOff() {
 # aufgerufen werden. Damit wird erreicht, dass alle Uebersteuerungen irgendwann 
 # in einen normalen Zustand uebergehen.
 sub resetAutomatikControls() {
-	setBeschattungAutomaticOn();
+	setBeschattungAutomatic();
 	setHomePresence_Automatic();
 	#setHomePresence_Present();
 	setDayNightRolloAutomaticOn();
@@ -192,31 +192,38 @@ sub resetAutomatikControls() {
 # Defaultwerte (AUTOMATIC). Sie soll beim FHEM-Start aufgerufen werden (global:INITIALIZED).
 sub setAllAutomatikControlsDefaults() {
 	# TODO: future: Pruefen, ob z.B. Status "Verreist" bereucksichtigt werden soll
-	if(Value(DEVICE_NAME_CTRL_BESCHATTUNG) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_BESCHATTUNG,"STATE","???") eq "???") {
-	  setValue(DEVICE_NAME_CTRL_BESCHATTUNG, AUTOMATIC);
+	if(Value(DEVICE_NAME_CTRL_BESCHATTUNG) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_BESCHATTUNG,"state","???") eq "???") {
+	  setValue(DEVICE_NAME_CTRL_BESCHATTUNG, NORMAL);
 	}
 	
-	if(Value(DEVICE_NAME_CTRL_ANWESENHEIT) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_ANWESENHEIT,"STATE","???") eq "???") {
+	if(Value(DEVICE_NAME_CTRL_ANWESENHEIT) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_ANWESENHEIT,"state","???") eq "???") {
     setValue(DEVICE_NAME_CTRL_ANWESENHEIT, AUTOMATIC);
   }
 	#setHomePresence_Present();
 	
-	if(Value(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT,"STATE","???") eq "???") {
+	if(Value(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT,"state","???") eq "???") {
     setValue(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT, AUTOMATIC);
   }
 	
-	if(Value(DEVICE_NAME_CTRL_ZIRK_PUMPE) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_ZIRK_PUMPE,"STATE","???") eq "???") {
+	if(Value(DEVICE_NAME_CTRL_ZIRK_PUMPE) eq "???" ||  ReadingsVal(DEVICE_NAME_CTRL_ZIRK_PUMPE,"state","???") eq "???") {
     setValue(DEVICE_NAME_CTRL_ZIRK_PUMPE, AUTOMATIC);
   }
 }
 
-# Schatet Beschattung-Automatik ein (setzt DEVICE_NAME_CTRL_BESCHATTUNG aud AUTOMATIC)
-sub setBeschattungAutomaticOn() {
-	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
-	setValue(DEVICE_NAME_CTRL_BESCHATTUNG, AUTOMATIC);
+# Liefert aktuellen Modus der Beschattungsautomatik
+sub getBeschattungMode() {
+	return Value(DEVICE_NAME_CTRL_BESCHATTUNG);
 }
 
-# Schatet Beschattung-Automatik aus (setzt DEVICE_NAME_CTRL_BESCHATTUNG aud DISABLED)
+# Schatet Beschattung-Automatik ein (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf AUTOMATIC)
+sub setBeschattungAutomatic() {
+	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
+	if(ReadingsVal(DEVICE_NAME_CTRL_BESCHATTUNG,"state","???") eq '???' || ReadingsVal(DEVICE_NAME_CTRL_BESCHATTUNG,"state","???") eq DISABLED) {
+  	setValue(DEVICE_NAME_CTRL_BESCHATTUNG, NORMAL);
+  }
+}
+
+# Schatet Beschattung-Automatik aus (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf DISABLED)
 sub setBeschattungAutomaticOff() {
 	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
 	setValue(DEVICE_NAME_CTRL_BESCHATTUNG, DISABLED);
@@ -244,13 +251,13 @@ sub setHomePresence_Absent() {
 	voiceHalloween(2);
 }
 
-# Schatet Tag/Nacht-Rolladen-Automatik ein (setzt DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT aud AUTOMATIC)
+# Schatet Tag/Nacht-Rolladen-Automatik ein (setzt DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT auf AUTOMATIC)
 sub setDayNightRolloAutomaticOn() {
 	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
 	setValue(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT, AUTOMATIC);
 }
 
-# Schatet Tag/Nacht-Rolladen-Automatic aus (setzt DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT aud DISABLED)
+# Schatet Tag/Nacht-Rolladen-Automatic aus (setzt DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT auf DISABLED)
 sub setDayNightRolloAutomaticOff() {
 	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
 	setValue(DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT, DISABLED);
@@ -268,6 +275,8 @@ sub getHomeAutomaticCtrlBlock($) {
 	return ($ret->{SINCE_LAST_SEC}, $ret->{BETWEEN_2_LAST_SEC}, $ret->{EQ_ACT_CNT}, $ret->{EQ_ACT_PP_CNT});
 }
 
+#my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst);
+my $hms;
 # wird regelmaessig (minuetlich) aufgerufen (AT)
 sub automationHeartbeat() {
 	# nach Bedarf (nachts) Automatik wieder aktivieren:
@@ -277,7 +286,9 @@ sub automationHeartbeat() {
 	
 	#Log 3, "AutomationControlBase: Heartbeat";
 	
-	my $hms = CurrentTime();
+	#($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime;
+	
+	$hms = CurrentTime();
 	my $cDate = CurrentDate(); 
 	# es ist egal, an welchen Element man diese Angabe 'anhaengt'... nur ein Container
 	my $lDate = getCtrlData("ctrl_last_automatic_heartbeat_reset");
@@ -332,17 +343,164 @@ sub automationHeartbeat() {
 		if($wnd ne "") {
       checkFensterZustand($wnd);
     }
-	} 
+	}
 	
 	# TODO: Terrassentueren
 	
 	# TODO: Eingangstuer
+	
+	# Beschattung:
+	#TODO: Universelle Namen
+	 my $bMode = getBeschattungMode();
+	 checkFensterBeschattung("virtual_wz_fenster", "wz_rollo_l",$bMode);
+	 checkFensterBeschattung("virtual_wz_terrassentuer", "wz_rollo_r",$bMode);
+	 checkFensterBeschattung("virtual_ku_fenster", "ku_rollo",$bMode);
+	 
+	# TODO: 
+	
 }
 
 # --- User Methods ------------------------------------------------------------
 
 # TODO
 
+# Prueft, ob Beschattung des gegebenen Fenster notwendig (und gewuenscht) ist
+# Return: -1 -> Error, 0 -> keine Aenderung, 1 -> Beschattung aktiviert, 2 -> Beschattung aufgehoben
+sub checkFensterBeschattung($$$) {
+	my($sensorName, $rolloName, $mode) = @_;
+	
+	if($mode eq DISABLED) {
+		Log 3, "Automation: checkFensterBeschattung: disabled";
+		return -9;
+	}
+	
+	# Hack: Vorerst ueber die Zeit steuern, damit diese Funktion nicht der Nacht-Automatik in die Quere kommt.
+	my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime;
+	if($hour <= 10 || $hour >= 18) {
+		Log 3, "Automation: checkFensterBeschattung: disabled (night mode)";
+		return -99;
+	}
+	#Log 3, "Automation: checkFensterBeschattung: TEST";
+	#return -99;
+	
+	if($mode eq CONSERVATIVE) {
+  	my $prRec = HAL_getSensorValueRecord($sensorName,'presence');
+	  if($prRec) {
+		  if($prRec->{value}) {
+		    return -8;
+		  }
+	  }
+	}
+	
+	# Wenn Sonne ins Fenster scheint (> 1M? Einstellbar machen?)
+	# Wenn draussen > 25 Grad ist
+	# Wenn Aussenhelligkit > 40000 (?)
+	# Dann Rollostand neu berechnen
+	
+	# TODO: Modi beruecksichtigen:
+	#  Direkt: Sofortaenderung; 
+	#  Konservativ: PIR auswerten, weniger Rolladenbewegungen, wenn Leute im Raum; Aus; 
+	#  Normal: Sicherstellen, dass zw. Rollo-Aenderungen gewissen min. Zeit vergeht.;
+	#Normal,Konservativ,Aggressiv,Deaktiviert
+	
+	# TODO: Manuelle Roll.Bewegung erkenen (Zeitstempel)
+	
+  # Sonneneinstrahlung
+	my $srRec = HAL_getSensorValueRecord($sensorName,"sunny_room_range");
+	my $sr=-1;
+	if($srRec) {
+		$sr=$srRec->{value};
+  } else {
+		#Error
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Error: reading sunny_room_range";
+		return -1;
+	}
+	
+	#luminosity
+	my $lRec = HAL_getSensorValueRecord($sensorName,"luminosity");
+	my $lum=-1;
+	if($lRec) {
+		$lum=$lRec->{value};
+	} else {
+		# Error
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Error: reading luminosity";
+		return -1;
+	}
+	
+	#temperature
+  my $tRec = HAL_getSensorValueRecord($sensorName,"temperature");
+  my $tem=-1;
+	if($tRec) {
+		$tem=$tRec->{value};
+	} else {
+		# Error
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Error: reading temperature";
+		return -1;
+	}
+	
+	# Rollostand abfragen
+  my $rlRec = HAL_getSensorValueRecord($sensorName,"level");
+  my $level = 100;
+  if($rlRec) {
+    $level = $rlRec->{value};
+  } else {
+  	# Warning
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Warning: reading level";
+  }
+  
+  Log 3, "Automation: checkFensterBeschattung: Sensor: $sensorName, SunRange: $sr, Lum: $lum, Temp: $tem, Level: $level";
+	
+	# Grenzwerte: TODO: Ggf. ins SensorRecord packen
+	my $limMaxLum = 25000; 
+	my $limMinLum = $limMaxLum*0.9;
+	my $limMaxTem = 20;
+	my $limMinTem = $limMaxTem - 1;
+	my $limMaxSR = 1;
+	my $limMinSR = $limMaxSR - 0.1;
+	
+	my $doClose=0;
+	# Pruefen: schliessen?
+	if($sr > $limMaxSR) {
+		if($lum > $limMaxLum) {
+	  	if($tem > $limMaxTem) {
+			  # Rollo: TODO Berechnen
+			  if($level>30) { # TODO: ? Manuelle Eingriffe erkennen
+			  	$doClose=1;
+			  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Beschattung";
+			    notGreaterThen($rolloName, 'schatten');
+			  }
+			} else {
+				Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Temperatur (to low): ".$tem;
+			}			
+	  } else {
+			Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Helligkeit (to low): ".$lum;
+		}
+	} else {
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Sonneneinstrahlung (to low): ".$sr;
+	}
+	
+	my $doOpen=0;
+	if(!$doClose) {
+	  # Pruefen: oeffnen?
+	  # Level
+	  if($level<100) { # TODO: ? Manuelle Eingriffe erkennen
+	 	  if($lum < $limMinLum || $tem < $limMinTem || $sr < $limMinSR) {
+	 	  	$doOpen=1;
+	 	  	# TODO: Rollo notwenigen Level berechnen
+			  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Beschattung aufheben";
+			    notLesserThen($rolloName, 'hoch');
+	 	  } else {
+	 	  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => keine Aufhebeung";
+	 	  }
+	  } else {
+ 	  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => keine Beschattung aktuell";
+ 	  }
+	}
+	
+	return $doClose?1:$doOpen?2:0;
+}
+
+# Prueft, ob Fenster geoeffnet sind und ob diesbezueglich Warnungen ausgegeben werden sollen
 sub checkFensterZustand($) {
 	my($deviceName) = @_;
 	my $wstruct = previewGenericCtrlBlock("ctrl_last_window_state_".$deviceName);
@@ -368,8 +526,11 @@ sub checkFensterZustand($) {
     	    # Alarm wenn kalt im Zimmer?
   	      #TODO
   	      getGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","on");
-  	      voiceNotificationMsgWarn(100);
-  	      speak("Fenster in ".getDeviceLocation($deviceName,"unbekannt")." ist seit ueber ".rundeZahl0($dauer/60)." Minuten gekippt!",0);
+  	      # Aber nicht nachts in Schlafzimmern/Bad
+  	      if($hms lt "11:00" and $hms gt "06:00") {
+  	        voiceNotificationMsgWarn(100);
+  	        speak("Fenster in ".getDeviceLocation($deviceName,"unbekannt")." ist seit ueber ".rundeZahl0($dauer/60)." Minuten gekippt!",0);
+  	      }
         }
       }
 		} else {

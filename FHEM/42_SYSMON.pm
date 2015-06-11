@@ -23,7 +23,7 @@
 #
 ################################################################
 
-# $Id: 42_SYSMON.pm 8384 2015-04-06 18:13:04Z hexenmeister $
+# $Id: 42_SYSMON.pm 8537 2015-05-06 20:27:47Z hexenmeister $
 
 package main;
 
@@ -37,13 +37,17 @@ use Data::Dumper;
 my $missingModulRemote;
 eval "use Net::Telnet;1" or $missingModulRemote .= "Net::Telnet ";
 
-my $VERSION = "2.1.5";
+my $VERSION = "2.2.2";
 
 use constant {
   PERL_VERSION    => "perl_version",
   DATE            => "date",
   UPTIME          => "uptime",
   UPTIME_TEXT     => "uptime_text",
+  STARTTIME_TEXT  => "starttime_text",
+  STARTTIME       => "starttime",
+  FHEMSTARTTIME_TEXT => "fhemstarttime_text",
+  FHEMSTARTTIME   => "fhemstarttime",
   FHEMUPTIME      => "fhemuptime",
   FHEMUPTIME_TEXT => "fhemuptime_text",
   IDLETIME        => "idletime",
@@ -93,6 +97,7 @@ use constant {
   ETH0        => "eth0",
   WLAN0       => "wlan0",
   DIFF_SUFFIX => "_diff",
+  SPEED_SUFFIX => "_speed",
   IP_SUFFIX   => "_ip",
   IP6_SUFFIX  => "_ip6",
   FB_WLAN_STATE       => "wlan_state",
@@ -251,16 +256,20 @@ SYSMON_updateCurrentReadingsMap($) {
   if(SYSMON_isCPUFreqRPiBBB($hash)) {
     $rMap->{"cpu_freq"}       = "CPU frequency";
     $rMap->{"cpu0_freq"}       = "CPU frequency";
+    $rMap->{"cpu_freq_stat"}       = "CPU frequency stat";
+    $rMap->{"cpu0_freq_stat"}       = "CPU frequency stat";
   }
   foreach my $li (0..7) {
     if(SYSMON_isCPUXFreq($hash, $li)) {
       $rMap->{"cpu".$li."_freq"}        = "CPU frequency (core $li)";
+      $rMap->{"cpu".$li."_freq_stat"}        = "CPU frequency (core $li) stat";
     }
   }
   if(SYSMON_isCPUTempRPi($hash) || SYSMON_isCPUTempBBB($hash) || SYSMON_isCPUTempFB($hash)) {
     #$rMap->{+CPU_TEMP}       = "CPU Temperatur";
     #$rMap->{"cpu_temp_avg"}  = "Durchschnittliche CPU Temperatur";
     $rMap->{+CPU_TEMP}        = "CPU temperature";
+    $rMap->{+CPU_TEMP.'_stat'}= "CPU temperature stat";
     #$rMap->{"cpu0_temp"}      = "CPU temperature (core 0)";
     $rMap->{"cpu_temp_avg"}   = "Average CPU temperature";
     #$rMap->{"cpu0_temp_avg"}   = "Average CPU temperature (core 0)";
@@ -268,7 +277,8 @@ SYSMON_updateCurrentReadingsMap($) {
   foreach my $li (0..7) {
     if(SYSMON_isCPUTemp_X($hash, $li)) {
       $rMap->{"cpu".$li."_temp"}      = "CPU temperature (core $li)";
-      $rMap->{"cpu".$li."_temp_avg"}   = "Average CPU temperature (core $li)";
+      $rMap->{"cpu".$li."_temp_avg"}  = "Average CPU temperature (core $li)";
+      $rMap->{"cpu".$li."_temp_stat"} = "CPU temperature stat (core $li)";
     }
   }  
   
@@ -321,12 +331,14 @@ SYSMON_updateCurrentReadingsMap($) {
   $rMap->{"loadavg_15"}      = "Load average 15";
   
   $rMap->{"ram"}             = "RAM";
+  $rMap->{"ram_used_stat"}   = "RAM used stat";
   $rMap->{"ram_total"}       = "RAM total";
   $rMap->{"ram_used"}        = "RAM used";
   $rMap->{"ram_free"}        = "RAM free";
   $rMap->{"ram_free_percent"}= "RAM free %";
   
   $rMap->{"swap"}            = "swap";
+  $rMap->{"swap_used_stat"}  = "swap used stat";
   $rMap->{"swap_total"}      = "swap total";
   $rMap->{"swap_used"}       = "swap used";
   $rMap->{"swap_free"}       = "swap free";
@@ -334,12 +346,18 @@ SYSMON_updateCurrentReadingsMap($) {
   
   $rMap->{"uptime"}          = "System up time";
   $rMap->{"uptime_text"}     = "System up time";
+  $rMap->{+STARTTIME_TEXT}   = "System start time";
+  $rMap->{+STARTTIME}        = "System start time";
+
+  $rMap->{+FHEMSTARTTIME}    = "Fhem start time";
+  $rMap->{+FHEMSTARTTIME_TEXT} = "Fhem start time";
 
   # Werte fuer GesamtCPU
   $rMap->{"stat_cpu"}          = "CPU statistics";
   $rMap->{"stat_cpu_diff"}     = "CPU statistics (diff)";
   $rMap->{"stat_cpu_percent"}  = "CPU statistics (diff, percent)";
   $rMap->{"stat_cpu_text"}     = "CPU statistics (text)";
+  $rMap->{"cpu_idle_stat"}     = "CPU min/max/avg (idle)";
   
   $rMap->{"stat_cpu_user_percent"} = "CPU statistics user %";
   $rMap->{"stat_cpu_nice_percent"} = "CPU statistics nice %";
@@ -355,6 +373,7 @@ SYSMON_updateCurrentReadingsMap($) {
     $rMap->{"stat_cpu".$i."_diff"}    = "CPU".$i." statistics (diff)";
     $rMap->{"stat_cpu".$i."_percent"} = "CPU".$i." statistics (diff, percent)";
     $rMap->{"stat_cpu".$i."_text"} = "CPU".$i." statistics (text)";
+    $rMap->{"cpu".$i."_idle_stat"}     = "CPU".$i." min/max/avg (idle)";
   }
   
   # Filesystems <readingName>[:<mountPoint>[:<Comment>]]
@@ -407,6 +426,7 @@ SYSMON_updateCurrentReadingsMap($) {
       
       $rMap->{$nName}           =  $nPt;
       $rMap->{$nName."_diff"}   =  $nPt." (diff)";
+      $rMap->{$nName."_speed"}   =  $nPt." (speed)";
       $rMap->{$nName."_rx"}     =  $nPt." (RX)";
       $rMap->{$nName."_tx"}     =  $nPt." (TX)";
       $rMap->{$nName."_ip"}     =  $nPt." (IP)";
@@ -420,6 +440,7 @@ SYSMON_updateCurrentReadingsMap($) {
       my $nName = "ath0";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -428,6 +449,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "ath1";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -436,6 +458,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "cpmac0";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -444,6 +467,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "dsl";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -452,6 +476,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = ETH0;
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -460,6 +485,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "guest";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -468,6 +494,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "hotspot";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -476,6 +503,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "lan";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -484,6 +512,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = "vdsl";
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -493,6 +522,7 @@ SYSMON_updateCurrentReadingsMap($) {
       my $nName = ETH0;
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -501,6 +531,7 @@ SYSMON_updateCurrentReadingsMap($) {
       $nName = WLAN0;
       $rMap->{$nName}         = "Network adapter ".$nName;
       $rMap->{$nName."_diff"} = "Network adapter ".$nName." (diff)";
+      $rMap->{$nName."_speed"} = "Network adapter ".$nName." (speed)";
       $rMap->{$nName."_rx"} = "Network adapter ".$nName." (RX)";
       $rMap->{$nName."_tx"} = "Network adapter ".$nName." (TX)";
       $rMap->{$nName."_ip"} = "Network adapter ".$nName." (IP)";
@@ -832,12 +863,15 @@ SYSMON_Update($;$)
       $refresh_all = 1;
     }
 
+    SYSMON_obtainLocalCPUFreq($hash);
+    
+    my $map;
     if(!AttrVal($name, "nonblocking", 1)) {
       # direkt call
       
       # Parameter holen
-      my $map = SYSMON_obtainParameters($hash, $refresh_all);
-
+      $map = SYSMON_obtainParameters($hash, $refresh_all);
+			
       # Mark setzen 
       if(!$hash->{helper}{u_first_mark}) {
         $hash->{helper}{u_first_mark} = 1;
@@ -855,9 +889,47 @@ SYSMON_Update($;$)
       
       $hash->{helper}{READOUT_RUNNING_PID} = BlockingCall("SYSMON_blockingCall", $name."|".$refresh_all, "SYSMON_blockingFinish", 55, "SYSMON_blockingAbort", $hash);
     }
-      
+    
+    
+       
   }
 
+}
+
+sub SYSMON_obtainLocalCPUFreq($) {
+	my ($hash) = @_;
+	
+	my $map;
+	#--------------------------------------------------------------------------
+  my $base=$DEFAULT_INTERVAL_BASE; 
+  my $im = "1 1 1 10";
+  # Wenn wesentliche Parameter nicht definiert sind, soll aktualisierung immer vorgenommen werden
+  if((defined $hash->{INTERVAL_BASE})) {
+    $base = $hash->{INTERVAL_BASE};
+  }
+  if((defined $hash->{INTERVAL_MULTIPLIERS})) {
+    $im = $hash->{INTERVAL_MULTIPLIERS};
+  }
+
+  my $ref =  int(time()/$base);
+  my ($m1, $m2, $m3, $m4) = split(/\s+/, $im);
+  
+  if($m1 gt 0) { # Nur wenn > 0
+    # M1: cpu_freq, cpu_temp, cpu_temp_avg, loadavg, procstat, iostat
+    if(($ref % $m1) eq 0) {
+	    # Sonderlocke: CPUFreq
+	    my $mode = $hash->{MODE};
+	    if ($mode eq 'local') {
+		    foreach my $li (0..7) {
+		      if(SYSMON_isCPUXFreq($hash, $li)) {
+		        $map = SYSMON_getCPUFreqLocal($hash, $map, $li);
+		      }
+		    }
+	    }
+	  }
+	}
+  #--------------------------------------------------------------------------
+  SYSMON_updateReadings($hash,$map);
 }
 
 sub SYSMON_blockingCall($) {
@@ -1376,6 +1448,25 @@ SYSMON_getValues($;@)
   return \%shadow_map;
 }
 
+sub SYSMON_getComputeStat($$$$) {
+	my ($hash, $map, $val, $name) = @_;
+	
+	my $t = ReadingsVal($hash->{NAME},$name,"$val $val $val");
+	
+	my($min, $max, $avg) = split(/ /,$t);
+	$min = $val if $min>$val;
+	$max = $val if $max<$val;
+	$avg = (3*$avg + $val)/4;
+	
+	$t = sprintf( "%.2f %.2f %.2f", $min, $max, $avg );
+	
+	$map->{$name} = $t;
+	
+	#SYSMON_Log($hash, 3, ">>>>>>>>>>>>>>>>> ".$name." => $t");
+	
+	return $map;
+}
+
 #------------------------------------------------------------------------------
 # Liest Benutzerdefinierte Eintraege
 #------------------------------------------------------------------------------
@@ -1509,6 +1600,10 @@ SYSMON_getUptime($$)
       #$map->{+UPTIME_TEXT} = sprintf("%d days, %02d hours, %02d minutes, %02d seconds",SYSMON_decode_time_diff($uptime));
       $map->{+UPTIME_TEXT} = sprintf("%d days, %02d hours, %02d minutes",SYSMON_decode_time_diff($uptime));
     
+      my $startTime = time()-$uptime;
+      $map->{+STARTTIME} = sprintf("%d",$startTime);
+      $map->{+STARTTIME_TEXT} = strftime("%d.%m.%Y %H:%M:%S", localtime($startTime));
+    
       $map->{+IDLETIME}=sprintf("%d %.2f %%",$idle, $idle_percent);
       $map->{+IDLETIME_TEXT} = sprintf("%d days, %02d hours, %02d minutes",SYSMON_decode_time_diff($idle)).sprintf(" (%.2f %%)",$idle_percent);
       #$map->{+IDLETIME_PERCENT} = sprintf ("%.2f %",$idle_percent);
@@ -1556,6 +1651,10 @@ SYSMON_getUptime2($$)
     $map->{+UPTIME}=sprintf("%d",$uptime);
     $map->{+UPTIME_TEXT} = sprintf("%d days, %02d hours, %02d minutes",SYSMON_decode_time_diff($uptime));
     
+    my $startTime = time()-$uptime;
+    $map->{+STARTTIME} = sprintf("%d",$startTime);
+    $map->{+STARTTIME_TEXT} = strftime("%d.%m.%Y %H:%M:%S", localtime($startTime));
+    
     my $loadavg=$6;
     if(defined($loadavg)) {
       my ($la1, $la5, $la15, $prc, $lastpid) = split(/\s+/, trim($loadavg));
@@ -1589,6 +1688,10 @@ SYSMON_getFHEMUptime($$)
     my $fhemuptime = time()-$fhem_started;
     $map->{+FHEMUPTIME} = sprintf("%d",$fhemuptime);
     $map->{+FHEMUPTIME_TEXT} = sprintf("%d days, %02d hours, %02d minutes",SYSMON_decode_time_diff($fhemuptime));
+    
+    my $startTime = time()-$fhemuptime;
+    $map->{+FHEMSTARTTIME} = sprintf("%d",$startTime);
+    $map->{+FHEMSTARTTIME_TEXT} = strftime("%d.%m.%Y %H:%M:%S", localtime($startTime));
   }
 
   return $map;
@@ -1636,6 +1739,9 @@ SYSMON_getCPUTemp_RPi($$) {
   $map->{+CPU_TEMP}="$val_txt";
   my $t_avg = sprintf( "%.1f", (3 * ReadingsVal($hash->{NAME},CPU_TEMP_AVG,$val_txt) + $val_txt ) / 4 );
   $map->{+CPU_TEMP_AVG}="$t_avg";
+  
+  $map = SYSMON_getComputeStat($hash, $map, $val_txt, CPU_TEMP."_stat");
+  
   return $map;
 }
 
@@ -1657,6 +1763,9 @@ SYSMON_getCPUTemp_BBB($$) {
   $map->{+CPU_TEMP_AVG}=$t_avg;  
   $t_avg = sprintf( "%.1f", (3 * ReadingsVal($hash->{NAME},"cpu0_temp_avg",$val_txt) + $val_txt ) / 4 );
   $map->{"cpu0_temp_avg"}=$t_avg;  
+  
+  $map = SYSMON_getComputeStat($hash, $map, $val_txt, CPU_TEMP."_stat");
+  
   return $map;
 }
 
@@ -1677,6 +1786,9 @@ SYSMON_getCPUTemp_X($$;$) {
   $map->{"cpu".$cpuNum."_temp"}="$val_txt";
   my $t_avg = sprintf( "%.1f", (3 * ReadingsVal($hash->{NAME},"cpu".$cpuNum."_temp_avg",$val_txt) + $val_txt ) / 4 );
   $map->{"cpu".$cpuNum."_temp_avg"}=$t_avg;  
+  
+  $map = SYSMON_getComputeStat($hash, $map, $val_txt, "cpu".$cpuNum."_temp"."_stat");
+  
   return $map;
 }
 
@@ -1697,6 +1809,9 @@ SYSMON_getCPUTemp_FB($$) {
       $map->{+CPU_TEMP}="$val_txt";
       my $t_avg = sprintf( "%.1f", (3 * ReadingsVal($hash->{NAME},CPU_TEMP_AVG,$val_txt) + $val_txt ) / 4 );
       $map->{+CPU_TEMP_AVG}="$t_avg";
+      
+      $map = SYSMON_getComputeStat($hash, $map, $val_txt, CPU_TEMP."_stat");
+      
     }
   }
   return $map;
@@ -1704,6 +1819,41 @@ SYSMON_getCPUTemp_FB($$) {
 
 #------------------------------------------------------------------------------
 # leifert CPU Frequenz (Raspberry Pi, BeagleBone Black, Cubietruck, etc.)
+# Sonderlocke fuer lokale Erfassung (damit die CPU nicht auf Max. gefahren wird)
+# Dazu darf nicht in BlockingCall und keine System-Aufrufe wie 'cat' etc.
+#------------------------------------------------------------------------------
+sub
+SYSMON_getCPUFreqLocal($$;$) {
+	my ($hash, $map, $cpuNum) = @_;
+	
+	if($hash->{helper}->{excludes}{'cpufreq'}) {return $map;}
+  
+  $cpuNum = 0 unless defined $cpuNum;
+  
+	my $val;
+  if(open(my $fh, '<', "/sys/devices/system/cpu/cpu".$cpuNum."/cpufreq/scaling_cur_freq")) {
+    $val = <$fh>;
+    close($fh);
+  }
+  
+  $val = int($val);
+  my $val_txt = sprintf("%d", $val/1000);
+  if($cpuNum == 0) {
+  	# aus Kompatibilitaetsgruenden
+    $map->{+CPU_FREQ}="$val_txt";
+    $map = SYSMON_getComputeStat($hash, $map, $val_txt, CPU_FREQ."_stat");
+  }
+  
+  $map->{"cpu".$cpuNum."_freq"}="$val_txt";
+
+  $map = SYSMON_getComputeStat($hash, $map, $val_txt, "cpu".$cpuNum."_freq"."_stat");
+  
+  return $map;
+}
+
+#------------------------------------------------------------------------------
+# leifert CPU Frequenz (Raspberry Pi, BeagleBone Black, Cubietruck, etc.)
+# Nur Remote Aufrufe
 #------------------------------------------------------------------------------
 sub
 SYSMON_getCPUFreq($$;$) {
@@ -1712,15 +1862,36 @@ SYSMON_getCPUFreq($$;$) {
   if($hash->{helper}->{excludes}{'cpufreq'}) {return $map;}
   
   $cpuNum = 0 unless defined $cpuNum;
-  my $val = SYSMON_execute($hash, "cat /sys/devices/system/cpu/cpu".$cpuNum."/cpufreq/scaling_cur_freq 2>&1");
+  
+  my $val;
+  
+  my $mode = $hash->{MODE};
+  if ($mode eq 'local') {
+  	# do nothing
+  	return $map;
+  }
+  # XXX Hack: Versuch zu vermeiden, dass Frequenz immer als Maximum gelesen wird
+  #my $mode = $hash->{MODE};#AttrVal( $name, 'mode', 'local');
+  #if ($mode eq 'local') {
+  #  if(open(my $fh, '<', "/sys/devices/system/cpu/cpu".$cpuNum."/cpufreq/scaling_cur_freq")) {
+  #    $val = <$fh>;
+  #    close($fh);
+  #  }
+  #} else {
+    $val = SYSMON_execute($hash, "[ -f /sys/devices/system/cpu/cpu".$cpuNum."/cpufreq/scaling_cur_freq ] && cat /sys/devices/system/cpu/cpu".$cpuNum."/cpufreq/scaling_cur_freq 2>&1 || echo 0");
+  #}
+  
   $val = int($val);
   my $val_txt = sprintf("%d", $val/1000);
   if($cpuNum == 0) {
   	# aus Kompatibilitaetsgruenden
     $map->{+CPU_FREQ}="$val_txt";
+    $map = SYSMON_getComputeStat($hash, $map, $val_txt, CPU_FREQ."_stat");
   }
   
   $map->{"cpu".$cpuNum."_freq"}="$val_txt";
+
+  $map = SYSMON_getComputeStat($hash, $map, $val_txt, "cpu".$cpuNum."_freq"."_stat");
   
   return $map;
 }
@@ -1997,8 +2168,8 @@ SYSMON_getCPUProcStat_intern($$$)
 {
   my ($hash, $map, $entry) = @_;
   
-  my($pName, $neuCPUuser, $neuCPUnice, $neuCPUsystem, $neuCPUidle, $neuCPUiowait, $neuCPUirq, $neuCPUsoftirq) = split(/\s+/, trim($entry));
-  $pName = "stat_".$pName;
+  my($tName, $neuCPUuser, $neuCPUnice, $neuCPUsystem, $neuCPUidle, $neuCPUiowait, $neuCPUirq, $neuCPUsoftirq) = split(/\s+/, trim($entry));
+  my $pName = "stat_".$tName;
   $map->{$pName}=$neuCPUuser." ".$neuCPUnice." ".$neuCPUsystem." ".$neuCPUidle." ".$neuCPUiowait." ".$neuCPUirq." ".$neuCPUsoftirq;
   
   my $lastVal = ReadingsVal($hash->{NAME},$pName,undef);
@@ -2026,6 +2197,8 @@ SYSMON_getCPUProcStat_intern($$$)
     
     $map->{$pName."_percent"}=sprintf ("%.2f %.2f %.2f %.2f %.2f %.2f %.2f",$PercentCPUuser,$PercentCPUnice,$PercentCPUsystem,$PercentCPUidle,$PercentCPUiowait,$PercentCPUirq,$PercentCPUsoftirq);
     $map->{$pName."_text"}=sprintf ("user: %.2f %%, nice: %.2f %%, sys: %.2f %%, idle: %.2f %%, io: %.2f %%, irq: %.2f %%, sirq: %.2f %%",$PercentCPUuser,$PercentCPUnice,$PercentCPUsystem,$PercentCPUidle,$PercentCPUiowait,$PercentCPUirq,$PercentCPUsoftirq);
+    
+    $map = SYSMON_getComputeStat($hash, $map, $PercentCPUidle, $tName."_idle_stat");
   }
 
   return $map;
@@ -2073,6 +2246,8 @@ sub SYSMON_getRamAndSwap($$) {
   #my $percentage_ram;
   #my $percentage_swap;
   
+  my $used_clean;
+  
   if(defined($total) && $total > 0) {
   
     $total   = $total / 1024;
@@ -2085,14 +2260,16 @@ sub SYSMON_getRamAndSwap($$) {
       # Bei FritzBox wird dieser Wert nicht ausgageben
       $cached  = 0;
     }
-
-    $ram = sprintf("Total: %.2f MB, Used: %.2f MB, %.2f %%, Free: %.2f MB", $total, ($used - $buffers - $cached), (($used - $buffers - $cached) / $total * 100), ($free + $buffers + $cached));
+    $used_clean = $used - $buffers - $cached;
+    $ram = sprintf("Total: %.2f MB, Used: %.2f MB, %.2f %%, Free: %.2f MB", $total, $used_clean, ($used_clean / $total * 100), ($free + $buffers + $cached));
   }
   else
   {
     $ram = "n/a";
   }
   $map->{+RAM} = $ram;
+  
+  $map = SYSMON_getComputeStat($hash, $map, $used_clean, "ram_used_stat");
   
   # wenn kein swap definiert ist, ist die Groesse (total2) gleich Null. Dies wuerde eine Exception (division by zero) ausloesen
   if(defined($total2) && $total2 > 0 && defined($used2) && defined($free2)) {
@@ -2106,6 +2283,7 @@ sub SYSMON_getRamAndSwap($$) {
   }
 
   $map->{+SWAP} = $swap;
+  $map = SYSMON_getComputeStat($hash, $map, $used2, "swap_used_stat");
   
   return $map;
 }
@@ -2204,6 +2382,7 @@ sub SYSMON_getRamAndSwapOSX($$) {
     my $ram = sprintf("Total: %.2f MB, Used: %.2f MB, %.2f %%, Free: %.2f MB", $total, $used , ($used / $total * 100), $free);
     #Log 3, "SYSMON >>>>>>>>>>>>>>>>>>>>>>>>> OSX: RAM:  ".$ram;
     $map->{+RAM} = $ram;
+    $map = SYSMON_getComputeStat($hash, $map, $used, "ram_used_stat");
   
     my @avm = SYSMON_execute($hash, "sysctl vm.swapusage");
     if($debug) {
@@ -2301,6 +2480,7 @@ sub SYSMON_getRamAndSwapOSX($$) {
       my $free2  = SYSMON_fmtStorageAmount_($3);
       my $swap = sprintf("Total: %.2f MB, Used: %.2f MB,  %.2f %%, Free: %.2f MB", $total2, $used2, ($used2 / $total2 * 100), $free2);
       $map->{+SWAP} = $swap; 
+      $map = SYSMON_getComputeStat($hash, $map, $used2, "swap_used_stat");
       #Log 3, "SYSMON >>>>>>>>>>>>>>>>>>>>>>>>> OSX: SWAP: ".$swap;
     }
   }
@@ -2605,6 +2785,11 @@ sub SYSMON_getNetworkInfo ($$$) {
         if($d_tt<0) {$d_tt=0;}
         my $out_txt_diff = "RX: ".sprintf ("%.2f", $d_rx)." MB, TX: ".sprintf ("%.2f", $d_tx)." MB, Total: ".sprintf ("%.2f", $d_tt)." MB";
         $map->{$nName.DIFF_SUFFIX} = $out_txt_diff;
+      }
+      
+      my $speed = SYSMON_execute($hash, "[ -f /sys/class/net/$nName/speed ] && cat /sys/class/net/$nName/speed 2>/dev/null || echo not available");
+      if(defined($speed)) {
+      	 $map->{$nName.SPEED_SUFFIX} = $speed;
       }
     }
   } else {
@@ -3464,8 +3649,7 @@ sub SYSMON_PowerBatInfo($$) {
 }
 #-------------
 
-sub
-SYSMON_execute($$)
+sub SYSMON_execute($$)
 {
   my ($hash, $cmd) = @_;
   return SYSMON_Exec($hash, $cmd);
@@ -3948,6 +4132,538 @@ sub SYSMON_Log($$$) {
 #   return $string;
 #}
 
+
+# --- SNX ---------------------------------------------------------------------
+
+# SYSMON_ShowBarChartHtml(<device>,<options>);
+# device: name of the linked sysmon instance
+# options: perl hash { key=>value, key=>value, .. } containing options. possible keys are:
+# - bars: comma separated list of bars to show. possible bars are:
+#   - us: uptime system
+#   - uf: uptime fhem
+#   - cf[|<core>]: cpu frequency - <core> is the target cpu core number [0..n]
+#   - cl[|<core>]: cpu load - <core> is the target cpu core number [0..n]
+#   - ct: cpu temperature
+#   - mr: memory ram
+#   - ms: memory swap
+#   - fs|<name> file system - <name> is the target reading name
+#   the default value (if you do not provide bars option) is: us,uf,cl,ct,cf,mr,ms,fs:fs_root
+#   a bar won't displayed if the appropriate reading doesn't exist (e.g. cpu_freq @ fritzbox) or is empty (e.g. cpu_temp @ fritz box), even if you defined the bar to show.
+# - title_<bar>: bar title. if you use a bar in the bars option, but do not provide a title the default title will be displayed. possible bar names and their default title are:
+#   - us: uptime
+#   - uf: uptime fhem
+#   - cf: cpu% freq
+#   - cl: cpu% load
+#   - ct: cpu temp
+#   - mr: mem ram
+#   - ms: mem swap
+#   - fs: fs %
+#   - fsx: {fs_root=>"fs root"}
+#   - cfx: 
+#   - clx: 
+#   you can use the variable % within:
+#   - cf,cl: % will be replaced by the cpu core number
+#   - fs: % will be replaced by the reading name
+#   using bar names ending with x you can provide title for specific bars (e.g. cpu1, cpu2, fs_root, fs_boot).
+#   it has to be a perl hash too, where key is depending of the type:
+#   - fsx: name of the filesystem reading (e.g. fs_root, fs_boot)
+#   - cfx: cpu core number
+#   - clx: cpu core number
+#   - ctx: cpu core number
+#   if you provide a title for a specific bar (e.g title_cfx=>{1=>"cpu1 freq"}), this will be prefered and 'override' the general title (e.g. title_cf=>"cpu freq")
+# - stat: display of statistic data [min, max, avg]. possible values:
+#   - 0: no statistic data
+#   - 1: colored ranges (min to avg, avg to max) as bar overlay, hover-info  for pc, click-info for tablet/mobile
+# - weblink: name of a weblink instance. if you use this method inside a weblink you can provide the name if the weblink instance. due to that the title will appear as a link targeting the weblink instance detail page.
+# - title: the title of the chart. the default title is the name of the linked sysmon instance. if you supplied the weblink option this will be the default title.
+#     supply empty value to prevent title output. 
+# - color<type>: html/css color definition. possible type names and their default colors are:
+#   - Border: bar border (black)
+#   - Fill: bar content (tan)
+#   - Text: bar text (empty -> css style default) 
+#   - Stat: statistic data [min, max, avg] indicatator (=border -> if you change border, this will changed as well)
+#   - MinAvg: statistic data range1 - min to avg
+#   - AvgMax: staristic data range2 - avg to max
+#   color can be any html/css color definition:
+#   - name: red
+#   - hex: #ff0000
+#   - rgb: rgb(255,0,0)
+#          rgba(255,0,0,.5)
+#
+# example usage inside a weblink instance:
+# - no customization..
+#   define wlRasPi1 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi")}
+# - define which bars to show (cpu load, cpu temperature and filesystem fs_root)..
+#   define wlRasPi2 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{bars=>"cl,ct,fs|fs_root"})}
+# - show bars for each cpu core (in this case we've got 4 cores)..
+#   define wlRasPi3 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{bars=>"ct,cl,cl|0,cl|1,cl|2,cl|3"})}
+# - customize bar titles (cpu load => CPULoad, uptime system => System Uptime, common filesystem FileSystem <readingName> and the specific root filesystem (reading fs_root) => Root)..
+#   define wlRasPi4 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{title_cl=>"CPULoad",title_us=>"System Uptime",title_fs=>"FileSystem %",title_fs2=>{fs_root=>"Root"}})}
+# - customize colors (bar will be filled red, the text will be white)
+#   define wlRasPi5 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{colorFill=>"red",colorText=>"#fff"})}
+# - let the chart title become a link to the weblink instance
+#   define wlRasPi6 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{weblink=>"wlRasPi6"})}
+# - customize chart title
+#   define wlRasPi7 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{title=>"This is my Chart"})}
+# - disable statistical data
+#   define wlRasPi8 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{stat=>0})}
+# - mix previous options
+#   define wlRasPi9 weblink htmlCode {SYSMON_ShowBarChartHtml("sysRaspi",{weblink=>"wlRasPi9", title=>"Rasperry Pi", stat=>0, bars=>"cl,ct,us,fs|fs_root,fs|fs_boot", title_cl=>"CPU load", title_ct=>"CPU temperature", title_fs=>"FileSystem %", title_fsx=>{fs_root=>"Root"}, colorBorder=>"blue", colorFill=>"lightgray" ,colorText=>"blue"})}
+
+
+sub SYSMON_ShowBarChartHtml($;$) {
+  my ($dev,$opt) = @_;
+  # extend with default options..
+  $opt->{colorBorder} = $opt->{colorBorder} || 'black';
+  $opt->{colorFill} = $opt->{colorFill} || 'tan';
+  $opt->{colorText} = $opt->{colorText} || ''; # use font color by style..
+  $opt->{colorStat} = $opt->{colorStat} || $opt->{colorBorder};
+  $opt->{colorMinAvg} = $opt->{colorMinAvg} || 'lightsalmon';
+  $opt->{colorAvgMax} = $opt->{colorAvgMax} || 'lightgreen';
+  $opt->{title} = defined($opt->{title}) ? $opt->{title} : ( $opt->{weblink} || $dev );
+  $opt->{weblink} = $opt->{weblink} || '';
+  $opt->{bars} = $opt->{bars} || 'uf,us,cl,ct,cf,mr,ms,fs|fs_root';
+  $opt->{title_uf} = $opt->{title_uf} || 'uptime fhem';
+  $opt->{title_us} = $opt->{title_us} || 'uptime';
+  $opt->{title_ct} = $opt->{title_ct} || 'cpu temp';
+  $opt->{title_cf} = $opt->{title_cf} || 'cpu% freq';
+  $opt->{title_cl} = $opt->{title_cl} || 'cpu% load';
+  $opt->{title_mr} = $opt->{title_mr} || 'mem ram';
+  $opt->{title_ms} = $opt->{title_ms} || 'mem swap';
+  $opt->{title_fs} = $opt->{title_fs} || 'fs %';
+  $opt->{title_fsx} = $opt->{title_fsx} || {fs_root=>'fs root'};
+  $opt->{stat} = defined($opt->{stat}) ? $opt->{stat} : 1;
+  # bar string to array/hash..
+  $opt->{barList} = ();
+  foreach my $bar (split(/\s*,+\s*/,$opt->{bars})){
+    my ($type,$param) = split(/\|/,$bar);
+    #push(@{$opt->{barList}},{id=>Data::GUID->new->as_string,type=>$type,param=>$param},);
+    push(@{$opt->{barList}},{id=>time=~s/[^0-9]//gr,type=>$type,param=>$param},);
+  }
+  # html templates..
+  my $htmlTitleSimple = '<div><b>#TITLE#</b></div>';
+  my $htmlTitleWeblink = '<div><a href="?detail=#WEBLINK#"><b>#TITLE#</b></a></div>';
+  my $htmlRow = ''
+  . '<tr>'
+  . '  <td>#NAME#</td>'
+  . '  <td>#VALUE#</td>'
+  . '</tr>';
+  my $htmlBarSimple = ''
+  . '<div style="position:relative;min-width:200px;border:1px solid '.$opt->{colorBorder}.';cursor:default;">' 
+  . '  <div style="overflow:hidden;">'
+  . '    <div style="height:1.5em;background:'.$opt->{colorFill}.';width:#CURP#%;"></div>'
+  . '    <div style="position:absolute;top:.2em;height:1.3em;width:100%;text-align:center;color:'.$opt->{colorText}.'">#CURT#</div>'
+  . '  </div>'
+  . '</div>';
+  my $htmlBarStat = ''
+  . '<div id="#ID#" onclick="tgl(this)" style="position:relative;min-width:200px;border:1px solid '.$opt->{colorBorder}.';cursor:default;">' 
+  . '  <div id="#ID#Cur" style="overflow:hidden;transition:height .4s, opacity .4s;">'
+  . '    <div style="height:1.5em;background:'.$opt->{colorFill}.';width:#CURP#%;"></div>'
+  . '    <div style="position:absolute;top:.2em;height:1.3em;width:100%;text-align:center;color:'.$opt->{colorText}.'" title="min: #MINT# | avg: #AVGT# | max: #MAXT#">#CURT#</div>'
+  . '    <div style="position:absolute;top:0;height:.3em;background:'.$opt->{colorAvgMax}.';border-right:1px solid '.$opt->{colorStat}.';width:#MAXP#%;"></div>'
+  . '    <div style="position:absolute;top:0;height:.3em;background:'.$opt->{colorMinAvg}.';border-right:1px solid '.$opt->{colorStat}.';width:#AVGP#%;"></div>'
+  . '    <div style="position:absolute;top:0;height:.3em;background:'.$opt->{colorFill}.';border-right:1px solid '.$opt->{colorStat}.';width:#MINP#%;"></div>'
+  . '  </div>'
+  . '  <div id="#ID#MAM" style="height:0;opacity:0;overflow:hidden;transition:height .4s, opacity .4s;">'
+  . '    <div style="position:relative;">'
+  . '      <div style="height:.5em;background:tan;width:#MINP#%;"></div>'
+  . '    </div>'
+  . '    <div style="position:relative;">'
+  . '      <div style="height:.5em;background:tan;width:#AVGP#%;"></div>'
+  . '    </div>'
+  . '    <div style="position:relative;">'
+  . '      <div style="height:.5em;background:tan;width:#MAXP#%;"></div>'
+  . '    </div>'
+  . '    <div style="position:absolute;top:0;height:1.5em;width:100%;text-align:center;color:'.$opt->{colorText}.'" title="min: #MINT# | avg: #AVGT# | max: #MAXT#">#MINT# < #AVGT# < #MAXT#</div>'
+  . '  </div>'
+  . '</div>';
+  my $htmlScript .= ''
+  . '<script>'
+  . 'function tgl(o) {'
+  . '  var c=document.getElementById(o.id+"Cur");'
+  . '  var m=document.getElementById(o.id+"MAM");'
+  . '  var s,h;'
+  . '  if (o.mam=="yes") { o.mam=""; s=c.style; h=m.style; } else { o.mam="yes"; s=m.style; h=c.style; }'
+  . '  s.height="auto"; s.opacity=1; h.height=0; h.opacity=0;'
+  . '}'
+  . '</script>';
+  # access sysmon data..
+  #my $sysmon = SYSMON_getValues($dev);
+  my $sysmon = {};
+  my $html='';
+  if(defined($main::defs{$dev}{READINGS})) {
+    foreach my $r (keys($main::defs{$dev}{READINGS})){
+      $sysmon->{$r} = $main::defs{$dev}{READINGS}{$r}{VAL};
+    }
+  } else {
+    $html = 'Unknown device: '.$dev;
+  }
+  # build bar chart html..
+
+  # ..title
+  if (defined($opt->{title}) and $opt->{title} ne ''){
+    if (defined($opt->{weblink}) and $opt->{weblink} ne ''){
+      $html .= $htmlTitleWeblink =~ s/#TITLE#/$opt->{title}/r =~ s/#WEBLINK#/$opt->{weblink}/r;
+    }
+    else{
+      $html .= $htmlTitleSimple =~ s/#TITLE#/$opt->{title}/r;
+    }
+  }
+  # ..bars
+  my $htmlBar = ($opt->{stat} eq 1) ? $htmlBarStat : $htmlBarSimple;
+  $html .= '<table>';
+  foreach my $bar (@{$opt->{barList}}){
+  	$bar->{param} = $bar->{param} || '';
+    my $title = $opt->{'title_'.$bar->{type}.'x'}{$bar->{param}} || $opt->{'title_'.$bar->{type}};
+    if ($bar->{type} eq 'us'){
+      # uptime system / idle..
+      if (defined($sysmon->{uptime})){
+        my $upSystem = SYSMON_secsToReadable($sysmon->{uptime});
+         # idle..
+        if (defined($sysmon->{idletime})){
+          #25386 99.32 %
+          my (undef,$idleP,undef) = split(/\s+/,$sysmon->{idletime});
+          $upSystem .= " ($idleP % idle)";
+        }
+        $html .= $htmlRow
+                    =~ s/#NAME#/$title/gr
+                    =~ s/#VALUE#/$upSystem/gr;
+      }
+    }
+    elsif ($bar->{type} eq 'uf'){
+      # uptime fhem..
+      if (defined($sysmon->{fhemuptime})){
+        my $upFhem = SYSMON_secsToReadable($sysmon->{fhemuptime});
+        $html .= $htmlRow
+                    =~ s/#NAME#/$title/gr
+                    =~ s/#VALUE#/$upFhem/gr;
+      }
+    }
+    elsif ($bar->{type} eq 'cf'){
+      my $name = 'cpu'.$bar->{param}.'_freq';
+      my $nameS = $name.'_stat';
+      # cpu freq..
+      if (defined($sysmon->{$name})){
+        my %cf = ();
+        # min max avg..
+        if (defined($sysmon->{$nameS})){
+          #600.00 900.00 845.36
+          ($cf{min}, $cf{max}, $cf{avg}) = split(/\s+/,$sysmon->{$nameS});
+        }
+        $cf{curP} = sprintf("%.1f",$sysmon->{$name}/10);
+        $cf{curT} = sprintf("%.0f",$sysmon->{$name})." MHz";
+        $cf{minP} = sprintf("%.1f",($cf{min}/10));
+        $cf{minT} = sprintf("%.0f",$cf{min})." MHz";
+        $cf{maxP} = sprintf("%.1f",($cf{max}/10));
+        $cf{maxT} = sprintf("%.0f",$cf{max})." MHz";
+        $cf{avgP} = sprintf("%.1f",($cf{avg}/10));
+        $cf{avgT} = sprintf("%.0f",$cf{avg})." MHz";
+        $cf{title} = $title =~ s/%/$bar->{param}/gr;
+        $html .= $htmlRow
+                    =~ s/#NAME#/$cf{title}/gr
+                    =~ s/#VALUE#/$htmlBar/gr
+                                    =~ s/#ID#/$bar->{id}/gr
+                                    =~ s/#CURP#/$cf{curP}/gr =~ s/#CURT#/$cf{curT}/gr
+                                    =~ s/#MINP#/$cf{minP}/gr =~ s/#MINT#/$cf{minT}/gr
+                                    =~ s/#MAXP#/$cf{maxP}/gr =~ s/#MAXT#/$cf{maxT}/gr
+                                    =~ s/#AVGP#/$cf{avgP}/gr =~ s/#AVGT#/$cf{avgT}/gr;
+      }
+    }
+    elsif ($bar->{type} eq 'ct'){
+      # cpu temp..
+      if (defined($sysmon->{cpu_temp}) and $sysmon->{cpu_temp} > 0){
+        my %ct = ();
+        # min max avg..
+        if (defined($sysmon->{cpu_temp_stat})){
+          #40.62 42.24 41.54
+          ($ct{min}, $ct{max}, $ct{avg}) = split(/\s+/,$sysmon->{cpu_temp_stat});
+        }
+        $ct{curP} = sprintf("%.1f",$sysmon->{cpu_temp});
+        $ct{curT} = $ct{curP}." &deg;C";
+        $ct{minP} = sprintf("%.1f",$ct{min});
+        $ct{minT} = $ct{minP}." &deg;C";
+        $ct{maxP} = sprintf("%.1f",$ct{max});
+        $ct{maxT} = $ct{maxP}." &deg;C";
+        $ct{avgP} = sprintf("%.1f",$ct{avg});
+        $ct{avgT} = $ct{avgP}." &deg;C";
+        $ct{title} = $title =~ s/%/$bar->{param}/gr;
+        $html .= $htmlRow
+                    =~ s/#NAME#/$ct{title}/gr
+                    =~ s/#VALUE#/$htmlBar/gr
+                                    =~ s/#ID#/$bar->{id}/gr
+                                    =~ s/#CURP#/$ct{curP}/gr =~ s/#CURT#/$ct{curT}/gr
+                                    =~ s/#MINP#/$ct{minP}/gr =~ s/#MINT#/$ct{minT}/gr
+                                    =~ s/#MAXP#/$ct{maxP}/gr =~ s/#MAXT#/$ct{maxT}/gr
+                                    =~ s/#AVGP#/$ct{avgP}/gr =~ s/#AVGT#/$ct{avgT}/gr;
+      }
+    }
+    elsif ($bar->{type} eq 'cl'){
+      my $name = 'stat_cpu'.$bar->{param}.'_percent';
+      my $nameS = 'cpu'.$bar->{param}.'_idle_stat';
+      # cpu load..
+      if (defined($sysmon->{$name})){
+        my %cl = ();
+        #0.28 0.00 0.20 99.43 0.02 0.00 0.07
+        (undef,undef,undef,$cl{I},undef,undef,undef) = split(/\s+/,$sysmon->{$name});
+        # min max avg..
+        if ($opt->{stat} eq 1 and defined($sysmon->{$nameS})){
+          #92.53 99.75 98.84
+          ($cl{min},$cl{max},$cl{avg}) = split(/\s+/,$sysmon->{$nameS});
+        }
+        $cl{curP} = sprintf("%.1f",100-$cl{I});
+        $cl{curT} = $cl{curP}." %";
+        $cl{minP} = sprintf("%.1f",100-$cl{max});
+        $cl{minT} = $cl{minP}." %";
+        $cl{maxP} = sprintf("%.1f",100-$cl{min});
+        $cl{maxT} = $cl{maxP}." %";
+        $cl{avgP} = sprintf("%.1f",100-$cl{avg});
+        $cl{avgT} = $cl{avgP}." %";
+        $cl{title} = $title =~ s/%/$bar->{param}/gr;
+        $html .= $htmlRow
+                    =~ s/#NAME#/$cl{title}/gr
+                    =~ s/#VALUE#/$htmlBar/gr
+                                    =~ s/#ID#/$bar->{id}/gr
+                                    =~ s/#CURP#/$cl{curP}/gr =~ s/#CURT#/$cl{curT}/gr
+                                    =~ s/#MINP#/$cl{minP}/gr =~ s/#MINT#/$cl{minT}/gr
+                                    =~ s/#MAXP#/$cl{maxP}/gr =~ s/#MAXT#/$cl{maxT}/gr
+                                    =~ s/#AVGP#/$cl{avgP}/gr =~ s/#AVGT#/$cl{avgT}/gr;
+      }
+    }
+    elsif ($bar->{type} =~ /^m[r|s]$/){
+      my $name = ($bar->{type} eq 'mr') ? 'ram' : 'swap';
+      my $nameS = $name.'_used_stat';
+      #mem ram / swap..
+      if (defined($sysmon->{$name})){
+        my %mx = ();
+        #Total: 927.08 MB, Used: 47.86 MB, 5.16 %, Free: 879.22 MB
+        if($sysmon->{$name} ne 'n/a') {
+          (undef,$mx{T},$mx{Un},undef,$mx{U},undef,$mx{P},undef,undef,$mx{F},undef) = split(/[\s,]+/,$sysmon->{$name});
+          # min max avg..
+          if (defined($sysmon->{$nameS})){
+            #..
+            ($mx{min},$mx{max},$mx{avg}) = split(/\s+/,$sysmon->{$nameS});
+          }
+          #if ($mx{T} gt 1024){ # geht ned..
+          #if (int($mx{T}) gt 1024){ # geht ned..
+          if (length($mx{T}) gt 6){
+            $mx{U} /= 1024;
+            $mx{T} /= 1024;
+            $mx{min} /= 1024;
+            $mx{max} /= 1024;
+            $mx{avg} /= 1024;
+            $mx{Un} = 'GB';
+          }
+          $mx{curP} = sprintf("%.1f",$mx{U}/$mx{T}*100);
+          $mx{curT} = sprintf("%.0f",$mx{U})." / ".sprintf("%.0f",$mx{T})." ".$mx{Un};
+          $mx{minP} = sprintf("%.1f",$mx{min}/$mx{T}*100);
+          $mx{minT} = sprintf("%.0f",$mx{min})." ".$mx{Un};
+          $mx{maxP} = sprintf("%.1f",$mx{max}/$mx{T}*100);
+          $mx{maxT} = sprintf("%.0f",$mx{max})." ".$mx{Un};
+          $mx{avgP} = sprintf("%.1f",$mx{avg}/$mx{T}*100);
+          $mx{avgT} = sprintf("%.0f",$mx{avg})." ".$mx{Un};
+          $html .= $htmlRow
+                      =~ s/#NAME#/$title/gr
+                      =~ s/#VALUE#/$htmlBar/gr
+                                      =~ s/#ID#/$bar->{id}/gr
+                                      =~ s/#CURP#/$mx{curP}/gr    =~ s/#CURT#/$mx{curT}/gr
+                                      =~ s/#MINP#/$mx{minP}/gr =~ s/#MINT#/$mx{minT}/gr
+                                      =~ s/#MAXP#/$mx{maxP}/gr =~ s/#MAXT#/$mx{maxT}/gr
+                                      =~ s/#AVGP#/$mx{avgP}/gr =~ s/#AVGT#/$mx{avgT}/gr;
+        }
+      }
+    }
+    elsif ($bar->{type} eq 'fs'){
+      #storage..
+      if (defined($sysmon->{$bar->{param}})){
+        my %fs = ();
+        #Total: 14831 MB, Used: 2004 MB, 15 %, Available: 12176 MB at /
+        (undef,$fs{T},$fs{Un},undef,$fs{U},undef,$fs{P},undef,undef,$fs{F},undef) = split(/[\s,]+/,$sysmon->{$bar->{param}});
+        if ($fs{T} gt 0){
+          if (scalar($fs{T}) > 10000){ # geht ned..
+          #if (int($fs{T}) gt 1024){ # geht ned..
+          #if (length($fs{T}) gt 4){
+            $fs{U} /= 1024;
+            $fs{T} /= 1024;
+            $fs{Un} = 'GB';
+          }
+          $fs{curP} = sprintf("%.1f",$fs{U}/$fs{T}*100);
+          $fs{curT} = sprintf("%.1f",$fs{U})." / ".sprintf("%.1f",$fs{T})." ".$fs{Un};
+          #$fs{minP} = sprintf("%.1f",($fs{min}/$fs{T}*100));
+          #$fs{minT} = sprintf("%.0f",$fs{min})." ".$fs{Un};
+          #$fs{maxP} = sprintf("%.1f",$fs{max}/$fs{T}*100);
+          #$fs{maxT} = sprintf("%.0f",$fs{max})." ".$fs{Un};
+          #$fs{avgP} = sprintf("%.1f",$fs{avg}/$fs{T}*100);
+          #$fs{avgT} = sprintf("%.0f",$fs{avg})." ".$fs{Un};
+          $fs{title} = $title =~ s/%/$bar->{param}/gr;
+          $html .= $htmlRow
+                      =~ s/#NAME#/$fs{title}/gr
+                      =~ s/#VALUE#/$htmlBarSimple/gr
+                                      =~ s/#ID#/$bar->{id}/gr
+                                      =~ s/#CURP#/$fs{curP}/gr    =~ s/#CURT#/$fs{curT}/gr;
+                                      #=~ s/#MINP#/$fs{minP}/gr =~ s/#MINT#/$fs{minT}/gr
+                                      #=~ s/#MAXP#/$fs{maxP}/gr =~ s/#MAXT#/$fs{maxT}/gr
+                                      #=~ s/#AVGP#/$fs{avgP}/gr =~ s/#AVGT#/$fs{avgT}/gr;
+        }
+      }
+    }
+  }
+  $html .= '</table>';
+  $html .= $htmlScript if ($opt->{stat} eq 1);
+  return $html;
+}
+
+
+#sub SYSMON_secsToReadable($){
+#  my $secs = shift;
+#  my $y = floor($secs / 60/60/24/365);
+#  my $d = floor($secs/60/60/24) % 365;
+#  my $h = floor(($secs / 3600) % 24);
+#  my $m = floor(($secs / 60) % 60);
+#  my $s = $secs % 60;
+#  my $string = '';
+#  $string .= $y.'y ' if ($y > 0);
+#  $string .= $d.'d ' if ($d > 0);
+#  $string .= $h.'h ' if ($h > 0);
+#  $string .= $m.'m ' if ($m > 0);
+#  $string .= $s.'s' if ($s > 0);
+#  return $string;
+#}
+
+# --- SNX ---------------------------------------------------------------------
+
+## -----------------------------------------------------------------------------
+## Visualisation module. provided by snx.
+##
+## usage:
+##   SYSMON_weblinkHeader(<weblink device>[,<text>]) : create a clickable device header
+##   SYSMON_ShowBarChartHtml(<sysmon device>[,<bar color>[,<border color>]]) : create a bar chart for sysmon device
+## 
+## example:
+##   define wlSysmon weblink htmlCode {SYSMON_weblinkHeader('wlSysmon').SYSMON_ShowBarChartHtml('sysmon')}
+##   define wlSysmon weblink htmlCode {SYSMON_weblinkHeader('wlSysmon','Cubietruck').SYSMON_ShowBarChartHtml('sysmon','steelblue','gray')}
+##
+## -----------------------------------------------------------------------------
+sub SYSMON_weblinkHeader_alt($;$){
+  my $dev = shift;
+  my $text = shift||$dev;
+  return '<div><a href="?detail='.$dev.'"><b>'.$text.'</b></a></div>';
+}
+
+sub SYSMON_ShowBarChartHtml_alt($;$$){
+  my $dev = shift;
+  
+  my $colFill = shift || 'lightCoral';
+  my $colBorder = shift || 'black';
+  
+  my $htmlRow .= ''
+  . '<tr>'
+  . '  <td>#NAME#</td>'
+  . '  <td>#VALUE#</td>'
+  . '</tr>';
+  my $htmlBar .= ''
+  . '<div style="position:relative;height:1.1em;min-width:200px;border:1px solid '.$colBorder.';overflow:hidden;">' 
+  . '  <div style="position:absolute;height:1.1em;background:'.$colFill.';width:#PERC#%;">'
+  . '  </div>'
+  . '  <p style="position:absolute;height:1.1em;width:100%;text-align:center;margin:0">#TEXT#</p>'
+  . '</div>';
+
+  # access sysmon data..
+  #my $sysmon = SYSMON_getValues($dev);
+  my $sysmon = {};  
+  foreach my $r (keys($main::defs{$dev}{READINGS})){
+    $sysmon->{$r} = $main::defs{$dev}{READINGS}{$r}{VAL};
+  }
+  
+  my $html = '<table>';
+
+  # cpu load..
+  if (defined($sysmon->{'stat_cpu_percent'})){
+    #0.28 0.00 0.20 99.43 0.02 0.00 0.07
+    my (undef,undef,undef,$cpuI,undef,undef,undef) = split(/\s+/,$sysmon->{'stat_cpu_percent'});
+    my $cpuLoadP = sprintf("%.1f",(100-$cpuI));
+    my $cpuLoadT = $cpuLoadP." %";
+    $html .= $htmlRow =~ s/#NAME#/cpu load/r =~ s/#VALUE#/$htmlBar/r =~ s/#PERC#/$cpuLoadP/r =~ s/#TEXT#/$cpuLoadT/r;
+  }
+  
+  # cpu temp..
+  if (defined($sysmon->{'cpu_temp'})){
+    my $cpuTempT = $sysmon->{'cpu_temp'}." &deg;C";
+    my $cpuTempP = $sysmon->{'cpu_temp'};
+    $html .= $htmlRow =~ s/#NAME#/cpu temp/r =~ s/#VALUE#/$htmlBar/r =~ s/#PERC#/$cpuTempP/r =~ s/#TEXT#/$cpuTempT/r;
+  }
+
+  # cpu freq..
+  if (defined($sysmon->{'cpu_freq'})){
+    my $cpuFreqT = $sysmon->{'cpu_freq'}." MHz";
+    my $cpuFreqP = $sysmon->{'cpu_freq'}/10;
+    $html .= $htmlRow =~ s/#NAME#/cpu freq/r =~ s/#VALUE#/$htmlBar/r =~ s/#PERC#/$cpuFreqP/r =~ s/#TEXT#/$cpuFreqT/r;
+  }
+
+  #mem ram..
+  if (defined($sysmon->{'ram'})){
+    #Total: 927.08 MB, Used: 47.86 MB, 5.16 %, Free: 879.22 MB
+    my (undef,$ramT,$ramUn,undef,$ramU,undef,$ramP,undef,undef,$ramF,undef) = split(/[\s,]+/,$sysmon->{'ram'});
+    $ramT = sprintf("%.0f",$ramU)." / ".sprintf("%.0f",$ramT)." ".$ramUn;
+    $html .= $htmlRow =~ s/#NAME#/mem ram/r =~ s/#VALUE#/$htmlBar/r =~ s/#PERC#/$ramP/r =~ s/#TEXT#/$ramT/r;
+  }
+
+  #mem swap..
+  if (defined($sysmon->{'swap'})){
+    #Total: 100.00 MB, Used: 0.00 MB, 0.00 %, Free: 100.00 MB
+    my (undef,$swapT,$swapUn,undef,$swapU,undef,$swapP,undef,undef,$swapF,undef) = split(/[\s,]+/,$sysmon->{'swap'});
+    $swapT = sprintf("%.0f",$swapU)." / ".sprintf("%.0f",$swapT)." ".$swapUn;
+    $html .= $htmlRow =~ s/#NAME#/mem swap/r =~ s/#VALUE#/$htmlBar/r =~ s/#PERC#/$swapP/r =~ s/#TEXT#/$swapT/r;
+  }
+
+  #sd-card..
+  if (defined($sysmon->{'fs_root'})){
+    #Total: 14831 MB, Used: 2004 MB, 15 %, Available: 12176 MB at /
+    #my $sd = R("$dev:fs_root");
+    my (undef,$sdT,undef,undef,$sdU,undef,$sdP,undef,undef,$sdF,undef) = split(/[\s,]+/,$sysmon->{'fs_root'});
+    $sdT = sprintf("%.1f",($sdU/1024))." / ".sprintf("%.1f",($sdT/1024))." GB";
+    $html .= $htmlRow =~ s/#NAME#/root fs/r =~ s/#VALUE#/$htmlBar/r =~ s/#PERC#/$sdP/r =~ s/#TEXT#/$sdT/r;
+  }
+  
+  # uptime system / idle..
+  if (defined($sysmon->{'uptime'})){
+    my $upSystem = SYSMON_secsToReadable($sysmon->{'uptime'});
+    if (defined($sysmon->{uptime})){
+      #25386 99.32 %
+      my (undef,$idle,undef) = split(/\s+/,$sysmon->{'idletime'});
+      $upSystem .= " ($idle % idle)";
+    }
+    $html .= $htmlRow =~ s/#NAME#/system uptime/r =~ s/#VALUE#/$upSystem/r;
+  }
+  
+  # uptime fhem..
+  if (defined($sysmon->{'fhemuptime'})){
+    my $upFhem = SYSMON_secsToReadable($sysmon->{'fhemuptime'});
+    $html .= $htmlRow =~ s/#NAME#/fhem uptime/r =~ s/#VALUE#/$upFhem/r;
+  }
+ 
+  $html .= '</table>';
+  return $html;
+}
+
+
+sub SYSMON_secsToReadable($){
+  my $secs = shift;
+  my $y = floor($secs / 60/60/24/365);
+  my $d = floor($secs/60/60/24) % 365;
+  my $h = floor(($secs / 3600) % 24);
+  my $m = floor(($secs / 60) % 60);
+  my $s = $secs % 60;
+  my $string = '';
+  $string .= $y.'y ' if ($y > 0);
+  $string .= $d.'d ' if ($d > 0);
+  $string .= $h.'h ' if ($h > 0);
+  $string .= $m.'m ' if ($m > 0);
+  $string .= $s.'s' if ($s > 0);
+  return $string;
+}
+
+# -----------------------------------------------------------------------------
+
 1;
 
 =pod
@@ -3991,7 +4707,7 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
      Filesystem informations<br><br>
      </li>
      <li>The following parameters are always updated with the base interval (regardless of the Mx-parameter):<br>
-     fhemuptime, fhemuptime_text, idletime, idletime_text, uptime, uptime_text<br><br>
+     fhemuptime, fhemuptime_text, idletime, idletime_text, uptime, uptime_text, starttime, starttime_text<br><br>
      </li>
     </ul>
     To query a remote system at least the address (HOST) must be specified. Accompanied by the port and / or user name, if necessary. The password (if needed) has to be defined once with the command 'set password <password>'. For MODE parameter are 'telnet' and 'local' only allowed. 'local' does not require any other parameters and can also be omitted.
@@ -4030,6 +4746,14 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
       Time since the start of the FHEM server: human-readable output (text representation).
     </li>
     <br>
+    <li>fhemstarttime<br>
+      Start time (in seconds since 1.1.1970 1:00:00) of FHEM server.
+    </li>
+    <br>
+    <li>fhemstarttime_text<br>
+      Start time of the FHEM server: human-readable output (text representation).
+    </li>
+    <br>
     <li>idletime<br>
       Time spent by the system since the start in the idle mode (period of inactivity).
     </li>
@@ -4058,6 +4782,14 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
       System uptime (human readable).
     </li>
     <br>
+    <li>starttime<br>
+      System starttime.
+    </li>
+    <br>
+    <li>starttime_text<br>
+      System starttime (human readable).
+    </li>
+    <br>
     <li>Network statistics<br>
     Statistics for the specified network interface about the data volumes transferred and the difference since the previous measurement.
     <br>
@@ -4069,6 +4801,13 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
     IP and IP v6 adresses
     <code>eth0_ip 192.168.0.15</code><br>
     <code>eth0_ip6 fe85::49:4ff:fe85:f885/64</code><br>
+    </li>
+    <br>
+    <li>Network Speed (if avialable)<br>
+    speed of the network connection.
+    <br>
+    Examples:<br>
+    <code>eth0_speed 100</code><br>
     </li>
     <br>
     <li>File system information<br>
@@ -4173,7 +4912,37 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
         <code>power_battery_info: battery info: Li-Ion , capacity: 100 %, status: Full , health: Good , total capacity: 2100 mAh</code><br>
         The capacity must be defined in script.bin (e.g. ct-hdmi.bin). Parameter name pmu_battery_cap. Convert with bin2fex (bin2fex -> script.fex -> edit -> fex2bin -> script.bin).<br>
     </li>
+    <br>
+    <li>cpuX_freq_stat<br>
+        Frequency statistics for CPU X: minimum,  maximum and average values<br>
+        Example:<br>
+        <code>cpu0_freq_stat: 100 1000 900</code><br>
+    </li>
     <br>    
+        <li>cpuX_idle_stat<br>
+        Idle statistik for CPU X: minimum,  maximum and average values<br>
+        Example:<br>
+        <code>cpu0_freq_stat: 23.76 94.74 90.75</code><br>
+    </li>
+    <br>       
+        <li>cpu[X]_temp_stat<br>
+        Temperature statistik for CPU: minimum,  maximum and average values<br>
+        Example:<br>
+        <code>cpu_temp_stat: 41.00 42.50 42.00</code><br>
+    </li>
+    <br>       
+    <li>ram_used_stat<br>
+        RAM usage statistics: minimum,  maximum and average values<br>
+        Example:<br>
+        <code>ram_used_stat: 267.55 1267.75 855.00</code><br>
+    </li>
+    <br>
+    <li>swap_used_stat<br>
+        SWAP usage statistics: minimum,  maximum and average values<br>
+        Example:<br>
+        <code>swap_used_stat: 0 1024.00 250.00</code><br>
+    </li>
+    <br>
   <br>
   </ul>
 
@@ -4591,7 +5360,7 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
      Filesystem-Informationen<br><br>
      </li>
      <li>folgende Parameter werden immer anhand des Basisintervalls (unabh&auml;ngig von den Mx-Parameters) aktualisiert:<br>
-     fhemuptime, fhemuptime_text, idletime, idletime_text, uptime, uptime_text<br><br>
+     fhemuptime, fhemuptime_text, idletime, idletime_text, uptime, uptime_text, starttime, starttime_text<br><br>
      </li>
     </ul>
     F&uuml;r Abfrage eines entfernten Systems muss mindestens deren Adresse (HOST) angegeben werden, bei Bedarf erg&auml;nzt durch den Port und/oder den Benutzernamen. 
@@ -4632,6 +5401,14 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
         Zeit seit dem Start des FHEM-Servers: Menschenlesbare Ausgabe (texttuelle Darstellung).
     </li>
     <br>
+    <li>fhemstarttime<br>
+        Startzeit (in Sekunden seit 1.1.1970 1:00:00) des FHEM-Servers.
+    </li>
+    <br>
+    <li>fhemstarttime_text<br>
+        Startzeit des FHEM-Servers: Menschenlesbare Ausgabe (texttuelle Darstellung).
+    </li>
+    <br>
     <li>idletime<br>
         Zeit (in Sekunden und in Prozent), die das System (nicht der FHEM-Server!)
         seit dem Start in dem Idle-Modus verbracht hat. Also die Zeit der Inaktivit&auml;t.
@@ -4661,6 +5438,14 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
         Zeit seit dem Systemstart in menschenlesbarer Form.
     </li>
     <br>
+    <li>starttime<br>
+        Systemstart (Sekunden seit Thu Jan  1 01:00:00 1970).
+    </li>
+    <br>
+    <li>starttime_text<br>
+        Systemstart in menschenlesbarer Form.
+    </li>
+    <br>
     <li>Netzwerkinformationen<br>
     Informationen zu den &uuml;ber die angegebene Netzwerkschnittstellen &uuml;bertragene Datenmengen 
     und der Differenz zu der vorherigen Messung.
@@ -4673,6 +5458,13 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
     IP and IP v6 Adressen
     <code>eth0_ip 192.168.0.15</code><br>
     <code>eth0_ip6 fe85::49:4ff:fe85:f885/64</code><br>
+    </li>
+    <br>
+    <li>Network Speed (wenn verf&uuml;gbar)<br>
+    Geschwindigkeit der aktuellen Netzwerkverbindung.
+    <br>
+    Beispiel:<br>
+    <code>eth0_speed 100</code><br>
     </li>
     <br>
     <li>Dateisysteminformationen<br>
@@ -4782,6 +5574,36 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
         Die Kapazit&auml;t soll in script.bin (z.B. ct-hdmi.bin) eingestellt werden (Parameter pmu_battery_cap). Mit bin2fex konvertieren (bin2fex -> script.fex -> edit -> fex2bin -> script.bin)<br>
     </li>
     <br>    
+    <li>cpuX_freq_stat<br>
+        Frequenz-Statistik f&uuml;r die CPU X: Minimum, Maximum und Durchschnittswert<br>
+        Beispiel:<br>
+        <code>cpu0_freq_stat: 100 1000 900</code><br>
+    </li>
+    <br>    
+        <li>cpuX_idle_stat<br>
+        Leerlaufzeit-Statistik f&uuml;r die CPU X: Minimum, Maximum und Durchschnittswert<br>
+        Beispiel:<br>
+        <code>cpu0_freq_stat: 23.76 94.74 90.75</code><br>
+    </li>
+    <br>    
+        <li>cpu[X]_temp_stat<br>
+        Temperatur-Statistik f&uuml;r CPU: Minimum, Maximum und Durchschnittswert<br>
+        Beispiel:<br>
+        <code>cpu_temp_stat: 41.00 42.50 42.00</code><br>
+    </li>
+    <br>
+        <li>ram_used_stat<br>
+        Statistik der RAM-Nutzung: Minimum, Maximum und Durchschnittswert<br>
+        Example:<br>
+        <code>ram_used_stat: 267.55 1267.75 855.00</code><br>
+    </li>
+    <br>
+    <li>swap_used_stat<br>
+        Statistik der SWAP-Nutzung: Minimum, Maximum und Durchschnittswert<br>
+        Example:<br>
+        <code>swap_used_stat: 0 1024.00 250.00</code><br>
+    </li>
+    <br>
   <br>
   </ul>
 
@@ -4978,7 +5800,7 @@ If one (or more) of the multiplier is set to zero, the corresponding readings is
     Diese Werte werden entsprechend den Parameter &lt;reading_nameX&gt; in Readings &uuml;bernommen.<br>
     Ein Perlausdruck muss in geschweifte Klammer eingeschlossen werden und kann folgende Paramter verwenden: $HASH (Device-Hash) und $NAME (Device-Name).
     R&uuml;ckgabe wird analog einer Perlfunktion erwartet.<br>
-    Wichtig! Die Trennung zwischen mehreren Benutzerfunktionen muss mit einem Komma UND einem Leerzeichen erfolgen! Innerhalb der Funktiondefinition dürfen Kommas nicht durch Leerzeichen gefolgt werden.
+    Wichtig! Die Trennung zwischen mehreren Benutzerfunktionen muss mit einem Komma UND einem Leerzeichen erfolgen! Innerhalb der Funktiondefinition d&uuml;rfen Kommas nicht durch Leerzeichen gefolgt werden.
     </li>
     <br>
     <li>disable<br>

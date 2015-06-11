@@ -1197,10 +1197,21 @@ sub rundeZahl0($) {
 # Rundet eine Zahl mit 1-er Nachkommastelle
 sub rundeZahl1($) {
 	my($val)=@_;
+	return undef unless defined($val);
 	# Prüfen, ob numerisch
-	if(int($val)>0) {
+	#if(int($val)>0) {
 		$val = int(10*$val+0.5)/10;
-	}
+	#}
+	return $val;
+}
+
+# Rundet eine Zahl mit 2 Nachkommastellen
+sub rundeZahl2($) {
+	my($val)=@_;
+	# Prüfen, ob numerisch => Provlemen mit Zahlen < 1
+	#if(int($val)>0) {
+		$val = int(100*$val+0.5)/100;
+	#}
 	return $val;
 }
 
@@ -1255,7 +1266,7 @@ sub arraysVergleich($$) {
 #   arraysVergleich(["six","seven", "eight"], [6,7,8,9]); #anonyme zeiger
 # Rueckgabe: Array mit den Elementen, der Menge der Ueberschneidung.
 ###############################################################################
-sub arraysIntersec($$) {
+sub arraysIntersec2($$) {
 	#gewinnen der ganzen arrays:
   my @array1=@{$_[0]};
   my @array2=@{$_[1]};
@@ -1274,7 +1285,49 @@ sub arraysIntersec($$) {
   return \@intersec;
 }
 
+sub arraysIntesecTest() {
+  my @a = ('a','b','c');
+  my @b = ('b','c','d');
+  
+  my @c = arraysIntesec(\@a,\@b);
+  
+  Log 3,"+++++++++++++++++> a:".Dumper(@a);
+  Log 3,"+++++++++++++++++> b:".Dumper(@b);
+  Log 3,"+++++++++++++++++> c:".Dumper(@c);  
+}
 
+sub arraysIntesec($$) {
+	my ($a1,$a2) = @_;
+	
+	my @array1 = @$a1; # erstes Array
+  my @array2 = @$a2; # zweites Array
+  my @final = ();  # Schnittmenge
+
+  foreach my $el (@array1) {
+    foreach my $el2 (@array2) {
+      if (defined $el2 && $el eq $el2) {
+        $final[$#final+1] = $el;
+        undef $el2;
+        last;
+      }
+    }
+  }
+
+  return @final;
+}
+
+# Convert between radians and degrees (2π radians equals 360 degrees).
+use constant PI => 3.14159265358979;
+
+sub deg2rad {
+    my $degrees = shift;
+    return ($degrees / 180) * PI;
+}
+
+sub rad2deg {
+    my $radians = shift;
+    return ($radians / PI) * 180;
+}
 
 #####Icon Download#####
 sub
@@ -1558,6 +1611,44 @@ sub ShowGoogleMapsCode($$;$$$) {
   $htmlcode .= "<div id='map-canvas' style='width:".$width."px;height:".$height."px;'></div>";
   
   return $htmlcode;
+}
+
+# Prueft, ob der angegebener Tag Wochenende oder Feiertag ist (optional)
+# Params:
+#   day: 0-heute, 1-morgen etc. Wenn nichts angegeben, wird heute angenommen.
+#   Holiday-Device: (s. commandref) wird für die Feiertagspruefung verwendet.
+#                   falls nicht angegeben, wird im Attribut holiday2we in global
+#                   nachgesehen. Falls auch nicht angegeben, wird ignoriert. 
+#
+sub isWeOrHoliday(;$$) {
+  my ($day, $hdev) = @_;
+  $day = 0 unless $day;
+  $hdev = $attr{global}{holiday2we} unless $hdev;
+  
+  my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime;
+  
+  my $twday = $wday+$day;
+  $twday = $twday % 7;
+  
+  my $we = (($twday==0 || $twday==6) ? 1 : 0);
+  
+  if(!$we && $hdev && $defs{$hdev}) {
+    my $v = fhem("get $hdev days $day");
+    $we = 1 if($v ne "none");
+  }
+  
+  return $we;
+}
+
+sub IstGewitter($)
+{
+  my $dev = @_;
+  my $curTimestamp=time();
+  if (  (ReadingsVal($dev,"Warn_0_Start","") le $curTimestamp) &&  (ReadingsVal($dev,"Warn_0_End","") ge $curTimestamp) && (ReadingsVal($dev,"Warn_0_Type","") eq 7)  ) {
+    return 'on';
+  } else {
+    return 'off';
+  }
 }
 
 
