@@ -149,29 +149,68 @@ sub actFensterSabotageKontakt($$) {
 #}
 
 # Methode für den taster
-# Schatet globale Haus-Automatik ein 
+# Schaltet globale Haus-Automatik ein 
 # (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf AUTOMATIC/NORMAL)
 sub actHomeAutomaticOn() {
+	
+	# Bestaetigungston
+	voiceActAutomatik(1);
+	
 	# Derzeit keine globale Automatik, daher delegieren
 	setBeschattungAutomatic();
 	# Tag/Nacht-Steuerung moechte ich hier nicht haben...
 	
-	# Hier (Sprach)Meldungen
-	voiceActGenericUserEvent();
+	#TODO: Weiteres
 
 }
 
 # Methode für den taster
-# Schatet globale Haus-Automatik aus 
+# Schaltet globale Haus-Automatik aus 
 # (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf DISABLED)
 sub actHomeAutomaticOff() {
+	
+	# Bestaetigungston
+	voiceActAutomatik(2);
+	
 	# Derzeit keine globale Automatik, daher delegieren
 	setBeschattungAutomaticOff(); # ?
 	
-	# Hier (Sprach)Meldungen
-	voiceActLeaveHome();
+	#TODO: Weiteres
+	
   
 }
+
+# Methode für den taster
+# Schaltet Presence
+sub actHomePresenceShort() {
+	setHomePresence_Present();
+	
+	#Halloween TEMP
+	if(!voiceHalloween(1)) {
+	  #wenn die Halloween-Schaltung inaktiv
+	  # andere Aktionen
+	  
+	  # Hier (Sprach)Meldungen
+	  voiceActGenericUserEvent();
+	  
+	}
+}
+
+# Methode für den taster
+# Schaltet Presence
+sub actHomePresenceLong() {
+	setHomePresence_Absent();
+	
+	#Halloween TEMP
+	if(!voiceHalloween(2)) {
+	  #wenn die Halloween-Schaltung inaktiv
+	  # andere Aktionen
+	  
+	  # Hier (Sprach)Meldungen
+	  voiceActLeaveHome();
+	}
+}
+
 
 
 # --- User Service Utils ------------------------------------------------------
@@ -218,14 +257,23 @@ sub getBeschattungMode() {
 # Schatet Beschattung-Automatik ein (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf AUTOMATIC)
 sub setBeschattungAutomatic() {
 	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
+	my $lastBMode=getCtrlData("ctrl_last_automatic_mode_beschattung");
+	if(!defined($lastBMode)) {
+    $lastBMode = NORMAL;
+  }
+	
 	if(ReadingsVal(DEVICE_NAME_CTRL_BESCHATTUNG,"state","???") eq '???' || ReadingsVal(DEVICE_NAME_CTRL_BESCHATTUNG,"state","???") eq DISABLED) {
-  	setValue(DEVICE_NAME_CTRL_BESCHATTUNG, NORMAL);
+  	setValue(DEVICE_NAME_CTRL_BESCHATTUNG, $lastBMode);
   }
 }
 
 # Schatet Beschattung-Automatik aus (setzt DEVICE_NAME_CTRL_BESCHATTUNG auf DISABLED)
 sub setBeschattungAutomaticOff() {
 	# Erstmal nur Wert ssetzen. ggf später eine Aktion ausloesen
+	my $lastBMode=getBeschattungMode();
+	if($lastBMode ne DISABLED) {
+    putCtrlData("ctrl_last_automatic_mode_beschattung", $lastBMode);
+  }
 	setValue(DEVICE_NAME_CTRL_BESCHATTUNG, DISABLED);
 }
 
@@ -239,16 +287,12 @@ sub setHomePresence_Automatic() {
 sub setHomePresence_Present() {
 	# Erstmal nur Wert setzen. ggf später eine Aktion ausloesen
 	setValue(DEVICE_NAME_CTRL_ANWESENHEIT, PRESENT);
-	#Halloween TEMP
-	voiceHalloween(1);
 }
 
 # Setzt PRESENCE-Status auf abwesend (niemand ist zuhause)
 sub setHomePresence_Absent() {
 	# Erstmal nur Wert setzen. ggf später eine Aktion ausloesen
   setValue(DEVICE_NAME_CTRL_ANWESENHEIT, ABSENT);
-  #Halloween TEMP
-	voiceHalloween(2);
 }
 
 # Schatet Tag/Nacht-Rolladen-Automatik ein (setzt DEVICE_NAME_CTRL_ROLLADEN_DAY_NIGHT auf AUTOMATIC)
@@ -356,8 +400,12 @@ sub automationHeartbeat() {
 	 checkFensterBeschattung("virtual_wz_terrassentuer", "wz_rollo_r",$bMode);
 	 checkFensterBeschattung("virtual_ku_fenster", "ku_rollo",$bMode);
 	 
-	# TODO: 
-	
+	 checkFensterBeschattung("virtual_sz_fenster", "sz_rollo",$bMode);
+	 checkFensterBeschattung("virtual_bz_fenster", "bz_rollo",$bMode);
+	 checkFensterBeschattung("virtual_ka_fenster", "ka_rollo",$bMode);
+	 checkFensterBeschattung("virtual_kb_fenster", "kb_rollo",$bMode);
+	# TODO
+
 }
 
 # --- User Methods ------------------------------------------------------------
@@ -370,14 +418,16 @@ sub checkFensterBeschattung($$$) {
 	my($sensorName, $rolloName, $mode) = @_;
 	
 	if($mode eq DISABLED) {
-		Log 3, "Automation: checkFensterBeschattung: disabled";
+		#Log 3, "Automation: ($sensorName) checkFensterBeschattung: disabled";
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => disabled";
 		return -9;
 	}
 	
 	# Hack: Vorerst ueber die Zeit steuern, damit diese Funktion nicht der Nacht-Automatik in die Quere kommt.
 	my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime;
-	if($hour <= 10 || $hour >= 18) {
-		Log 3, "Automation: checkFensterBeschattung: disabled (night mode)";
+	if($hour < 10 || $hour >= 18) {
+		#Log 3, "Automation: ($sensorName) checkFensterBeschattung: disabled (night mode)";
+		Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => disabled by time interval (night mode)";
 		return -99;
 	}
 	#Log 3, "Automation: checkFensterBeschattung: TEST";
@@ -387,10 +437,22 @@ sub checkFensterBeschattung($$$) {
   	my $prRec = HAL_getSensorValueRecord($sensorName,'presence');
 	  if($prRec) {
 		  if($prRec->{value}) {
+		  	#Log 3, "Automation: ($sensorName) checkFensterBeschattung: disabled by presence (conservative mode)";
+		  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => disabled by presence (conservative mode)";
 		    return -8;
 		  }
 	  }
 	}
+	
+	my $wstruct = previewGenericCtrlBlock("ctrl_last_window_beschattung_".$sensorName);
+	
+	my $dauer = $wstruct ->{SINCE_LAST_SEC};
+  my $zustand = $wstruct ->{LAST_STATE};
+  
+  if(defined($zustand) && $dauer<900) { # nicht öffters als 15 Minuten aendern (der ersten Aufruf beruecksichtigen)
+  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => disabled by interval (too short)";
+  	return -7;
+  }
 	
 	# Wenn Sonne ins Fenster scheint (> 1M? Einstellbar machen?)
 	# Wenn draussen > 25 Grad ist
@@ -417,7 +479,7 @@ sub checkFensterBeschattung($$$) {
 	}
 	
 	#luminosity
-	my $lRec = HAL_getSensorValueRecord($sensorName,"luminosity");
+	my $lRec = HAL_getSensorValueRecord($sensorName,"outdoor_luminosity");
 	my $lum=-1;
 	if($lRec) {
 		$lum=$lRec->{value};
@@ -428,7 +490,7 @@ sub checkFensterBeschattung($$$) {
 	}
 	
 	#temperature
-  my $tRec = HAL_getSensorValueRecord($sensorName,"temperature");
+  my $tRec = HAL_getSensorValueRecord($sensorName,"outdoor_temperature");
   my $tem=-1;
 	if($tRec) {
 		$tem=$tRec->{value};
@@ -451,8 +513,8 @@ sub checkFensterBeschattung($$$) {
   Log 3, "Automation: checkFensterBeschattung: Sensor: $sensorName, SunRange: $sr, Lum: $lum, Temp: $tem, Level: $level";
 	
 	# Grenzwerte: TODO: Ggf. ins SensorRecord packen
-	my $limMaxLum = 25000; 
-	my $limMinLum = $limMaxLum*0.9;
+	my $limMaxLum = 17000; 
+	my $limMinLum = $limMaxLum*0.7;
 	my $limMaxTem = 20;
 	my $limMinTem = $limMaxTem - 1;
 	my $limMaxSR = 1;
@@ -466,8 +528,10 @@ sub checkFensterBeschattung($$$) {
 			  # Rollo: TODO Berechnen
 			  if($level>30) { # TODO: ? Manuelle Eingriffe erkennen
 			  	$doClose=1;
-			  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Beschattung";
+			  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Beschattung aktivieren";
+			  	getGenericCtrlBlock("ctrl_last_window_beschattung_".$sensorName,"activate");
 			    notGreaterThen($rolloName, 'schatten');
+			    #notGreaterThen($rolloName, 45);
 			  }
 			} else {
 				Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Temperatur (to low): ".$tem;
@@ -488,6 +552,7 @@ sub checkFensterBeschattung($$$) {
 	 	  	$doOpen=1;
 	 	  	# TODO: Rollo notwenigen Level berechnen
 			  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => Beschattung aufheben";
+			  	getGenericCtrlBlock("ctrl_last_window_beschattung_".$sensorName,"deactivate");
 			    notLesserThen($rolloName, 'hoch');
 	 	  } else {
 	 	  	Log 3, "Automation: checkFensterBeschattung: Sensor: ".$sensorName." => keine Aufhebeung";
@@ -513,42 +578,64 @@ sub checkFensterZustand($) {
   my $wcb = previewGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","on");
 	my $msgzeit = $wcb ->{SINCE_LAST_SEC};
 	my $msgcnt = $wcb ->{EQ_ACT_CNT};
+	my $msgMaxCnt;
 	
 	Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName.", Zustand: ".$zustand.", Dauer: ".$dauer.", LastMsgTime: ".$msgzeit.", MsgCnt: ".$msgcnt;
+	
+	my ($sec,$min,$hour,$mday,$month,$year,$wday,$yday,$isdst) = localtime;
 	
 	if($zustand ne STATE_NAME_WIN_CLOSED) { # Wenn nicht zu
 		if($zustand eq STATE_NAME_WIN_TILTED) {
 			# Wenn gekippt
-			if($msgcnt<1 && ($msgcnt==0 || $msgzeit>600)) { # wenn 10 Min keine Meldung
-    		# TODO je nach Aussentemperatur unterschiedliche Zeiten fuer die Warnung
-        if($dauer>1800) { # einmalig nach 30 Minuten warnen
-  	      # Meldung nur einmal augeben (bis zu 3 mal? bei 20,30, 60?)
-    	    # Alarm wenn kalt im Zimmer?
-  	      #TODO
-  	      getGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","on");
-  	      # Aber nicht nachts in Schlafzimmern/Bad
-  	      if($hms lt "11:00" and $hms gt "06:00") {
-  	        voiceNotificationMsgWarn(100);
-  	        speak("Fenster in ".getDeviceLocation($deviceName,"unbekannt")." ist seit ueber ".rundeZahl0($dauer/60)." Minuten gekippt!",0);
-  	      }
+			$msgMaxCnt = 1;
+			if($msgcnt<$msgMaxCnt) { # wenn max Anzahl Meldungen noch nicht erreicht ist
+			  if($msgcnt==0 || $msgzeit>600) { # wenn seit ueber 10 Min keine Meldung
+      		# TODO je nach Aussentemperatur unterschiedliche Zeiten fuer die Warnung
+          if($dauer>1800) { # einmalig nach 30 Minuten warnen
+    	      # Meldung nur einmal augeben (bis zu 3 mal? bei 20,30, 60?)
+      	    # Alarm wenn kalt im Zimmer?
+    	      #TODO
+    	      getGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","on");
+    	      # Aber nicht nachts in Schlafzimmern/Bad : TODO
+    	      if($hms lt "11:00" and $hms gt "06:00") {
+    	        Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." => ".$msgcnt.". Warnung. (Max: ".$msgMaxCnt." Meldungen)";
+    	        voiceNotificationMsgWarn(0);
+    	        speak("Fenster in ".getDeviceLocation($deviceName,"unbekannt")." ist seit ueber ".rundeZahl0($dauer/60)." Minuten gekippt!",0);
+    	      }
+          }
+        } else {
+          Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." => ".$msgcnt."Warnung in ".(600-$msgzeit).". (Max: ".$msgMaxCnt." Meldungen)";
         }
+      } else {
+        Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." Max. Anzahl Warnungen erreicht. (Max: ".$msgMaxCnt." Meldungen)";
       }
 		} else {
-    	if($msgcnt<4 && ($msgcnt==0 || $msgzeit>600)) { # sein min. 10 Min keine Meldung, oder gar keine Meldung, aber nicht mehr als N Mal
-    		# TODO je nach Aussentemperatur unterschiedliche Zeiten fuer die Warnung
-        if($dauer>1200) { # 20 Min
-  	      # Meldung nur einmal augeben (bis zu 3 mal? bei 20,30, 60?)
-    	    # Alarm wenn kalt im Zimmer?
-  	      #TODO
-  	      getGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","on");
-  	      voiceNotificationMsgWarn(100);
-  	      speak("Achtung! Fenster in ".getDeviceLocation($deviceName,"unbekannt")." ist seit ueber ".rundeZahl0($dauer/60)." Minuten offen!",100);
+		  $msgMaxCnt = 4;
+		  $msgMaxCnt = 2 if($hour>22); # Nach 22:00 nur zweimal warnen
+		  $msgMaxCnt = 1 if($hour>23); # Nach 23:00 nur einmal warnen
+    	if($msgcnt<$msgMaxCnt) { # sein min. 10 Min keine Meldung, oder gar keine Meldung, aber nicht mehr als N Mal
+    	  if($msgcnt==0 || $msgzeit>600) { # wenn seit ueber 10 Min keine Meldung
+      		# TODO je nach Aussentemperatur unterschiedliche Zeiten fuer die Warnung
+          if($dauer>1200) { # 20 Min
+    	      # Meldung nur einmal augeben (bis zu 3 mal? bei 20,30, 60?)
+      	    # Alarm wenn kalt im Zimmer?
+    	      #TODO
+    	      getGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","on");
+    	      Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." => ".$msgcnt.". Warnung. (Max: ".$msgMaxCnt." Meldungen)";
+    	      voiceNotificationMsgWarn(0);
+    	      speak("Achtung! Fenster in ".getDeviceLocation($deviceName,"unbekannt")." ist seit ueber ".rundeZahl0($dauer/60)." Minuten offen!",100);
+          }
+        } else {
+          Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." => ".$msgcnt."Warnung in ".(600-$msgzeit).". (Max: ".$msgMaxCnt." Meldungen)";
         }
+      } else {
+        Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." Max. Anzahl Warnungen erreicht. (Max: ".$msgMaxCnt." Meldungen)";
       }
     }
   } else {
   	# Fenster zu, Meldungen-ControlBlock resetten
   	removeGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg");
+  	Log 3, "Automation: checkFensterZustand: Dev: ".$deviceName." => geschlossen, keine Warnungen.";
   	#getGenericCtrlBlock("ctrl_last_window_state_".$deviceName."_msg","off");
   }
 }

@@ -23,12 +23,13 @@
 #
 ################################################################
 
-# $Id: 42_SYSMON.pm 8537 2015-05-06 20:27:47Z hexenmeister $
+# $Id: 42_SYSMON.pm 8890 2015-07-05 10:16:19Z hexenmeister $
 
 package main;
 
 use strict;
 use warnings;
+use Scalar::Util qw(looks_like_number);
 
 use Blocking;
 
@@ -37,7 +38,7 @@ use Data::Dumper;
 my $missingModulRemote;
 eval "use Net::Telnet;1" or $missingModulRemote .= "Net::Telnet ";
 
-my $VERSION = "2.2.2";
+my $VERSION = "2.2.6";
 
 use constant {
   PERL_VERSION    => "perl_version",
@@ -202,7 +203,7 @@ SYSMON_Define($$)
 
   #$hash->{DEF_TIME} = time() unless defined($hash->{DEF_TIME});
 
-  SYSMON_updateCurrentReadingsMap($hash);
+  #SYSMON_updateCurrentReadingsMap($hash);
 
   RemoveInternalTimer($hash);
   InternalTimer(gettimeofday()+$hash->{INTERVAL_BASE}, "SYSMON_Update", $hash, 0);
@@ -241,6 +242,11 @@ sub
 SYSMON_updateCurrentReadingsMap($) {
   my ($hash) = @_;
   my $name = $hash->{NAME};
+  
+  if( AttrVal($name, "disable", "") eq "1" ) {
+    return undef;
+  }
+
   my $rMap;
   
   # Map aktueller Namen erstellen
@@ -1157,7 +1163,7 @@ SYSMON_obtainParameters_intern($$)
     # nur lokal abfragen (macht remote keinen Sinn)
     if ($mode eq 'local') {
       # Perl version
-      $map->{+PERL_VERSION} = "$]";
+      $map->{+PERL_VERSION} = "$^V";
     }
     
     if(SYSMON_isProcFS($hash)) {
@@ -1482,8 +1488,10 @@ SYSMON_getUserDefined($$$$)
   
   my $out_str = "";
   foreach my $k (@out_arr) {
-    chomp($k);
-    $out_str.=$k." ";
+  	if(defined($k)) {
+      chomp($k);
+      $out_str.=$k." ";
+    }
   }
   #my $out_str = join(" ",@out_arr);
   ##my $out_str = SYSMON_execute($hash, $uCmd);
@@ -1755,6 +1763,8 @@ SYSMON_getCPUTemp_BBB($$) {
   if($hash->{helper}->{excludes}{'cputemp'}) {return $map;}
   
   my $val = SYSMON_execute($hash, "cat /sys/class/hwmon/hwmon0/device/temp1_input 2>&1");
+  if(!looks_like_number($val)) {return $map;}
+  
   $val = int($val);
   my $val_txt = sprintf("%.2f", $val/1000);
   $map->{+CPU_TEMP}="$val_txt";
@@ -2662,7 +2672,7 @@ sub SYSMON_getNetworkInfo ($$$) {
   #--- DEBUG ---
 
   # check if network available
-  if (index($dataThroughput[0], 'Fehler') < 0 && index($dataThroughput[0], 'error') < 0)
+  if (defined($dataThroughput[0]) && index($dataThroughput[0], 'Fehler') < 0 && index($dataThroughput[0], 'error') < 0)
   {
     #Log 3, "SYSMON>>>>>>>>>>>>>>>>> OK >>>".$dataThroughput[0];
     my $dataThroughput = undef;
@@ -2717,12 +2727,12 @@ sub SYSMON_getNetworkInfo ($$$) {
     # if(-e "/sys/class/net/$nName/statistics/rx_bytes" && -e "/sys/class/net/$nName/statistics/tx_bytes") {
     if(SYSMON_isNetStatClass($hash, $nName)) {
         $rxRaw = SYSMON_execute($hash, "cat /sys/class/net/$nName/statistics/rx_bytes");
-        $rxRaw = -1 unless defined $rxRaw;
+        $rxRaw = -1 unless (defined($rxRaw) && looks_like_number($rxRaw));
         $txRaw = SYSMON_execute($hash, "cat /sys/class/net/$nName/statistics/tx_bytes");
-        $txRaw = -1 unless defined $txRaw;
+        $txRaw = -1 unless (defined($txRaw) && looks_like_number($txRaw));
     }
-    
-  if($rxRaw<0||$txRaw<0) {   
+
+  if($rxRaw<0||$txRaw<0) {
     if(defined $dataThroughput) {
       # remove RX bytes or TX bytes from string
       $dataThroughput =~ s/RX bytes://;

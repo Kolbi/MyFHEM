@@ -18,7 +18,8 @@ use constant {
  NOTIFICATION_MSG_INFO1 => ":cm/notifications/Merope.ogg:",
  NOTIFICATION_MSG_INFO2 => ":cm/notifications/pixiedust.ogg:",
  NOTIFICATION_MSG_WARN => ":cm/notifications/Naughty.ogg:",
- 
+ NOTIFICATION_AUTOMATIC_ON  => ":cm/notifications/Castor.ogg:",
+ NOTIFICATION_AUTOMATIC_OFF => ":cm/notifications/Mira.ogg:",
 };
 
 sub
@@ -240,8 +241,10 @@ sub speakWetterDaten(;$) {
   my($art)=@_;
   if(!defined($art)){$art=1;}
   # TODO: Sauber / Abstraktionslayer erstellen
-  my $temp = myCtrlVoice_prepareNumToSpeak(rundeZahl0(ReadingsVal("GSD_1.4","temperature","unbekannt")));
-  my $humi = myCtrlVoice_prepareNumToSpeak(rundeZahl0(ReadingsVal("GSD_1.4","humidity","unbekannt")));
+  #my $temp = myCtrlVoice_prepareNumToSpeak(rundeZahl0(ReadingsVal("GSD_1.4","temperature","unbekannt")));
+  #my $humi = myCtrlVoice_prepareNumToSpeak(rundeZahl0(ReadingsVal("GSD_1.4","humidity","unbekannt")));
+  my $temp = myCtrlVoice_prepareNumToSpeak(rundeZahl0(HAL_getRoomReadingValue('umwelt','temperature')));
+  my $humi = myCtrlVoice_prepareNumToSpeak(rundeZahl0(HAL_getRoomReadingValue('umwelt','humidity')));
   if($art==0) {
     #speak("Aussentemperatur ".$temp." Grad. Feuchtigkeit ".$humi." Prozent.",0);
     speak($temp." Grad. Feuchtigkeit ".$humi." Prozent.",0);
@@ -659,7 +662,27 @@ sub voiceMorningGreeting() {
 }
 
 
+sub voiceActAutomatik($) {
+	my ($mode) = @_;
+
+  if($mode eq "1") {
+	  # ON
+    speak(NOTIFICATION_AUTOMATIC_ON,0);
+    return 1;
+  } elsif($mode eq "2") {
+  	# OFF
+    speak(NOTIFICATION_AUTOMATIC_OFF,0);
+    return 1;
+  } else {
+  	# Unknown
+  	voiceNotificationFail();
+  }
+  
+  
+}
+
 # TODO:
+
 
 
 
